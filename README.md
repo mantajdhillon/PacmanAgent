@@ -179,6 +179,7 @@ print(f"Pellets: {len(game.board.pellets)}")
 
 ## 
 
+
 ## Epic 2: A* Pathfinding
 
 Epic 2 introduces an A* pathfinding agent (`astar_agent.py`) that automatically guides Pac-Man to the nearest pellet or power pellet using the A* search algorithm with a Manhattan distance heuristic.
