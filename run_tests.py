@@ -2,6 +2,7 @@
 
 import sys
 import numpy as np
+from astar_agent import AStarPacmanAgent
 from game_engine import PacmanGame
 from feature_extractor import FeatureExtractor
 from config import UP, DOWN, LEFT, RIGHT
@@ -170,6 +171,36 @@ def test_all_features():
     print(f"  - Distance keys: {list(features['distances'].keys())}")
 
 
+def test_astar_pathfinding():
+    """Test Epic 2 A* pathfinding to pellets."""
+    print("\nTesting A* pathfinding...")
+    game = PacmanGame(display=False)
+    agent = AStarPacmanAgent()
+
+    start = game.game_state.pacman.position.to_tuple()
+    path = agent.path_to_nearest_pellet(game.game_state)
+    action = agent.get_action(game.game_state)
+
+    assert path, "A* should return at least the current Pac-Man position"
+    assert path[0] == start, "A* path should start at Pac-Man's current position"
+    assert path[-1] in game.board.pellets or path[-1] in game.board.power_pellets, "A* path should end at a pellet"
+    assert action in [UP, DOWN, LEFT, RIGHT], "A* should return a legal movement direction"
+
+    moved = game.move_pacman(action)
+    assert moved, "A* selected an illegal move"
+
+    sample_points = [start] + game.board.get_pellets()[:5]
+    mst_cost = agent.estimate_mst_cost(game.game_state, sample_points)
+    assert mst_cost >= 0, "MST estimate should be non-negative"
+
+    print("[OK] A* pathfinding test:")
+    print(f"  - Start: {start}")
+    print(f"  - Target pellet: {path[-1]}")
+    print(f"  - Path length: {len(path) - 1}")
+    print(f"  - First action: {action}")
+    print(f"  - Sample MST estimate: {mst_cost}")
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -186,6 +217,7 @@ def main():
         test_collision_detection()
         test_win_condition()
         test_all_features()
+        test_astar_pathfinding()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")

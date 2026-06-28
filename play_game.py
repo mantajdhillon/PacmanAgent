@@ -1,6 +1,7 @@
 """Interactive Pac-Man game with Pygame UI for manual testing."""
 
 import pygame
+from astar_agent import AStarPacmanAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
@@ -15,6 +16,8 @@ class GamePlayer:
         self.game.reset()
         self.running = True
         self.paused = False
+        self.autoplay = False
+        self.astar_agent = AStarPacmanAgent()
         self.move_count = 0
         self.frame_count = 0
 
@@ -29,10 +32,20 @@ class GamePlayer:
                     self.running = False
                 elif event.key == pygame.K_SPACE:
                     self.paused = not self.paused
+                elif event.key == pygame.K_a:
+                    self.autoplay = not self.autoplay
+                    mode = "A* autoplay" if self.autoplay else "manual control"
+                    print(f"\n[MODE] Switched to {mode}")
                 elif event.key == pygame.K_r:
                     self.game.reset()
                     self.move_count = 0
                     print("\n[RESET] Game reset!")
+
+        if self.autoplay:
+            action = self.astar_agent.get_action(self.game.game_state)
+            if action != (0, 0) and self.game.move_pacman(action):
+                self.move_count += 1
+            return
 
         # Continuous key checking for smooth movement
         keys = pygame.key.get_pressed()
@@ -92,6 +105,10 @@ class GamePlayer:
             info_surface = self.game.font.render(info_text, True, (255, 255, 255))
             self.game.screen.blit(info_surface, (10, 10))
 
+            mode_text = "A* AUTOPLAY" if self.autoplay else "MANUAL"
+            mode_surface = self.game.font.render(mode_text, True, (255, 255, 0))
+            self.game.screen.blit(mode_surface, (10, 45))
+
             if self.paused:
                 pause_text = self.game.font.render("PAUSED (SPACE to resume)", True, (255, 0, 0))
                 self.game.screen.blit(pause_text, (WINDOW_WIDTH // 2 - 150, WINDOW_HEIGHT // 2))
@@ -115,6 +132,7 @@ class GamePlayer:
         print("=" * 60)
         print("\nControls:")
         print("  Arrow Keys - Move Pac-Man (UP, DOWN, LEFT, RIGHT)")
+        print("  A - Toggle A* autopilot")
         print("  SPACE - Pause/Resume")
         print("  R - Restart game")
         print("  ESC - Quit")
