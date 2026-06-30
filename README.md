@@ -204,3 +204,35 @@ Expected results:
 
 - All automated tests pass.
 - The A* demo successfully collects every pellet and wins the game without ghosts.
+
+---
+
+##
+
+
+## Epic 3: Adversarial Search (Minimax)
+
+Epic 3 introduces a defensive adversarial agent (`minimax_agent.py`) designed to calculate optimal evasion routes when under threat. It utilizes a multi-agent Minimax algorithm heavily optimized for real-time Pygame execution, allowing Pac-Man to dynamically prioritize survival over point collection.
+
+### Features
+
+* Multi-agent Minimax search tree handling up to 3 simultaneous actors (Max: Pac-Man, Min: Ghosts).
+* Alpha-Beta Pruning to mathematically sever suboptimal branches and reduce time complexity.
+* Transposition Tables (Memoization) with custom state-hashing to eliminate redundant state evaluations.
+* Active Threat Pruning, dynamically reducing the branching factor by ignoring ghosts outside a 6-tile radius.
+* Hybrid AI Orchestrator integrated into `play_game.py` (toggles between A* Offense and Minimax Defense automatically).
+* Custom terminal evaluation function penalizing death and maximizing Manhattan distance from threats.
+* Automated defensive survival test added to `run_tests.py`.
+* Headless adversarial simulation and FPS benchmarking via `run_minimax_demo.py`.
+
+### Test Epic 3
+
+```bash
+python run_tests.py
+python run_minimax_demo.py
+```
+Expected results:
+* All automated tests pass, specifically `test_minimax_defense` confirming Pac-Man successfully avoids a manufactured mortal threat.
+* The Minimax headless demo successfully evades ghosts for 200 frames while outputting a high FPS simulation speed, proving the pruning optimizations prevent computational freezing.
+* When running `python play_game.py` with the Hybrid Autoplay toggle ('A'), the UI smoothly transitions between A* Offense (Green) and Minimax Defense (Red) without interpreter lag.
+---

@@ -205,3 +205,154 @@ class GameState:
             "board_width": self.board.width,
             "board_height": self.board.height,
         }
+
+    def clone(self):
+        """
+        Creates a fast, lightweight copy of the game state for search trees.
+        """
+        # Clone the board lightly.
+        new_board = GameBoard(self.board.width, self.board.height)
+        new_board.board = self.board.board.copy()
+
+        # Sets are highly optimized in Python. Copying them is fast.
+        new_board.pellets = set(self.board.pellets)
+        new_board.power_pellets = set(self.board.power_pellets)
+
+        # Initialize new state and primitives
+        new_state = GameState(new_board)
+        new_state.pellets_eaten = self.pellets_eaten
+        new_state.power_pellets_eaten = self.power_pellets_eaten
+        new_state.game_over = self.game_over
+        new_state.game_won = self.game_won
+
+        # We shallow copy the eaten ghosts list
+        new_state.eaten_ghosts = list(self.eaten_ghosts)
+
+        # Clone Pac-Man
+        if self.pacman:
+            new_state.pacman = PacmanState(
+                position=Position(self.pacman.position.x, self.pacman.position.y),
+                direction=self.pacman.direction,
+                score=self.pacman.score,
+                lives=self.pacman.lives
+            )
+
+        # Clone Ghosts
+        for ghost in self.ghosts:
+            new_ghost = GhostState(
+                position=Position(ghost.position.x, ghost.position.y),
+                color=ghost.color,
+                direction=ghost.direction,
+                scared=ghost.scared,
+                scared_timer=ghost.scared_timer,
+                respawn_timer=ghost.respawn_timer,
+                name=ghost.name,
+                start_position=ghost.start_position
+            )
+            new_state.ghosts.append(new_ghost)
+
+        return new_state
+
+    def get_legal_actions(self, agent_index: int) -> List[Tuple[int, int]]:
+        """
+        Returns a list of legal moves (dx, dy) that do not result in hitting a wall.
+        agent_index: 0 for Pac-Man, 1+ for Ghosts.
+        """
+        if self.game_over or self.game_won:
+            return []
+
+        # Standard directions: UP, DOWN, LEFT, RIGHT
+        directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+        legal_actions = []
+
+        # Get the starting coordinates based on the agent
+        if agent_index == 0:
+            if not self.pacman: return []
+            x, y = self.pacman.position.x, self.pacman.position.y
+        else:
+            ghost_idx = agent_index - 1
+            if ghost_idx >= len(self.ghosts): return []
+            x, y = self.ghosts[ghost_idx].position.x, self.ghosts[ghost_idx].position.y
+
+        # Validate which moves are open
+        for dx, dy in directions:
+            new_x, new_y = x + dx, y + dy
+            if not self.board.is_wall(new_x, new_y):
+                legal_actions.append((dx, dy))
+
+        return legal_actions
+
+    def generate_successor(self, agent_index: int, action: Tuple[int, int]):
+        """
+        Generates a new GameState simulating the given action for the specific agent.
+        """
+        # Spawn the isolated clone
+        successor = self.clone()
+
+        if successor.game_over or successor.game_won:
+            return successor
+
+        # Execute Pac-Man's Move (Index 0)
+        if agent_index == 0:
+            pacman = successor.pacman
+            new_x = pacman.position.x + action[0]
+            new_y = pacman.position.y + action[1]
+
+            pacman.position = Position(new_x, new_y)
+            pacman.direction = action
+            pos_tuple = (new_x, new_y)
+
+            # Resolve Pellet Logic
+            if pos_tuple in successor.board.pellets:
+                successor.board.remove_pellet(new_x, new_y)
+                pacman.score += 10
+                successor.pellets_eaten += 1
+                if not successor.board.pellets and not successor.board.power_pellets:
+                    successor.game_won = True
+
+            elif pos_tuple in successor.board.power_pellets:
+                successor.board.remove_power_pellet(new_x, new_y)
+                pacman.score += 50
+                successor.power_pellets_eaten += 1
+                for ghost in successor.ghosts:
+                    ghost.scared = True
+                    ghost.scared_timer = 150
+                if not successor.board.pellets and not successor.board.power_pellets:
+                    successor.game_won = True
+
+            # Resolve Ghost Collision (Pac-Man moved into a ghost)
+            for ghost in successor.ghosts:
+                if ghost.position.to_tuple() == pos_tuple:
+                    if ghost.scared:
+                        successor.ghosts.remove(ghost)
+                        pacman.score += 200
+                        break
+                    else:
+                        pacman.lives -= 1
+                        if pacman.lives <= 0:
+                            successor.game_over = True
+                        break
+
+        # Execute Ghost's Move (Index > 0)
+        else:
+            ghost_idx = agent_index - 1
+            if ghost_idx < len(successor.ghosts):
+                ghost = successor.ghosts[ghost_idx]
+                new_x = ghost.position.x + action[0]
+                new_y = ghost.position.y + action[1]
+
+                ghost.position = Position(new_x, new_y)
+                ghost.direction = action
+                pos_tuple = (new_x, new_y)
+
+                # Resolve Ghost Collision (Ghost moved into Pac-Man)
+                if successor.pacman and pos_tuple == successor.pacman.position.to_tuple():
+                    if ghost.scared:
+                        successor.ghosts.remove(ghost)
+                        successor.pacman.score += 200
+                    else:
+                        successor.pacman.lives -= 1
+                        if successor.pacman.lives <= 0:
+                            successor.game_over = True
+
+        return successor
