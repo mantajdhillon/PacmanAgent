@@ -2,6 +2,7 @@
 
 import pygame
 from astar_agent import AStarPacmanAgent
+from minimax_agent import MinimaxPacmanAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
@@ -17,7 +18,9 @@ class GamePlayer:
         self.running = True
         self.paused = False
         self.autoplay = False
+        self.current_ai_mode = "MANUAL"
         self.astar_agent = AStarPacmanAgent()
+        self.minimax_agent = MinimaxPacmanAgent(depth=2)
         self.move_count = 0
         self.frame_count = 0
 
@@ -42,12 +45,38 @@ class GamePlayer:
                     print("\n[RESET] Game reset!")
 
         if self.autoplay:
-            action = self.astar_agent.get_action(self.game.game_state)
+            game_state = self.game.game_state
+            pacman_pos = game_state.pacman.position
+
+            # Find the nearest dangerous ghost
+            nearest_threat_dist = float('inf')
+
+            for ghost in game_state.ghosts:
+                if not ghost.scared:
+                    dist = abs(pacman_pos.x - ghost.position.x) + abs(pacman_pos.y - ghost.position.y)
+                    if dist < nearest_threat_dist:
+                        nearest_threat_dist = dist
+
+            # Orchestrator Logic
+            THREAT_RADIUS = 5  # Grid squares
+
+            if nearest_threat_dist <= THREAT_RADIUS:
+                # DANGER: Engage Defensive Minimax
+                self.current_ai_mode = "MINIMAX"
+                pygame.event.pump()
+                action = self.minimax_agent.get_action(game_state)
+            else:
+                # SAFE: Engage Offensive A*
+                self.current_ai_mode = "A*"
+                action = self.astar_agent.get_action(game_state)
+
+            # Execute the routed action
             if action != (0, 0) and self.game.move_pacman(action):
                 self.move_count += 1
             return
 
         # Continuous key checking for smooth movement
+        self.current_ai_mode = "MANUAL"
         keys = pygame.key.get_pressed()
         if keys[pygame.K_UP]:
             if self.game.move_pacman(UP):
@@ -105,7 +134,13 @@ class GamePlayer:
             info_surface = self.game.font.render(info_text, True, (255, 255, 255))
             self.game.screen.blit(info_surface, (10, 10))
 
-            mode_text = "A* AUTOPLAY" if self.autoplay else "MANUAL"
+            if self.current_ai_mode == "A*":
+                mode_text = "A* AUTOPLAY"
+            elif self.current_ai_mode == "MINIMAX":
+                mode_text = "MINIMAX AUTOPLAY"
+            else:
+                mode_text = "MANUAL"
+
             mode_surface = self.game.font.render(mode_text, True, (255, 255, 0))
             self.game.screen.blit(mode_surface, (10, 45))
 
@@ -154,6 +189,17 @@ class GamePlayer:
 
             self.render()
             self.frame_count += 1
+
+            if self.game.is_game_over() or self.game.is_game_won():
+                # Final render the "GAME OVER" or "YOU WIN" UI displays
+                self.render()
+                pygame.display.flip()
+
+                # Pause the thread for 2 seconds
+                pygame.time.delay(2000)
+
+                # Break the loop
+                self.running = False
 
             # Cap at 10 FPS for reasonable gameplay
             clock.tick(10)

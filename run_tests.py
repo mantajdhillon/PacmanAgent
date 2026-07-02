@@ -201,6 +201,64 @@ def test_astar_pathfinding():
     print(f"  - Sample MST estimate: {mst_cost}")
 
 
+def test_minimax_defense():
+    """Test Epic 3 Minimax defensive evasion."""
+    print("\nTesting Minimax defense...")
+    from game_engine import PacmanGame
+    from minimax_agent import MinimaxPacmanAgent
+    from game_state import GhostState, Position
+    import time
+
+    game = PacmanGame(display=False)
+    agent = MinimaxPacmanAgent(depth=2)
+
+    # Isolate the Environment
+    # Clear all existing ghosts to ensure the AI is only evaluating our test threat
+    game.game_state.ghosts.clear()
+    pacman_pos = game.game_state.pacman.position
+
+    # Manufacture a Mortal Threat
+    legal_moves = game.game_state.get_legal_actions(0)
+    assert len(legal_moves) > 0, "Pac-Man must have legal moves at spawn"
+
+    # Take the first available legal move and place a ghost exactly there
+    threat_dir = legal_moves[0]
+    threat_x = pacman_pos.x + threat_dir[0]
+    threat_y = pacman_pos.y + threat_dir[1]
+
+    assassin_ghost = GhostState(Position(threat_x, threat_y), "red", name="TestThreat")
+    game.game_state.add_ghost(assassin_ghost)
+
+    # Execute the AI Decision
+    start_time = time.time()
+    action = agent.get_action(game.game_state)
+    compute_time = time.time() - start_time
+
+    # Rigorous Assertions
+    assert action is not None, "Minimax returned None instead of a tuple"
+    assert action in legal_moves, f"Minimax returned illegal action {action}"
+
+    # Test Pac-Man must not step into the threat
+    assert action != threat_dir, f"FATAL: Minimax stepped into the ghost at {threat_dir}"
+
+    # Verify the engine accepts the move
+    moved = game.move_pacman(action)
+    assert moved, "Game engine rejected the Minimax action"
+
+    # Verify the evaluation utility returns the correct data type
+    eval_score = agent.evaluate_state(game.game_state)
+    assert isinstance(eval_score, float), "Evaluation function must return a float"
+
+    # Output Metrics
+    print("[OK] Minimax defense test passed:")
+    print(f"  - Initial Position: {pacman_pos.to_tuple()}")
+    print(f"  - Threat Injected At: ({threat_x}, {threat_y})")
+    print(f"  - Threat Direction: {threat_dir}")
+    print(f"  - Evasion Action: {action} (Survival Confirmed)")
+    print(f"  - Compute Time: {compute_time:.4f}s")
+    print(f"  - Post-Evasion Utility: {eval_score:.2f}")
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -218,6 +276,7 @@ def main():
         test_win_condition()
         test_all_features()
         test_astar_pathfinding()
+        test_minimax_defense()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")
