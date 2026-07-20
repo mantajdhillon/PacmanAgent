@@ -315,8 +315,8 @@ class PacmanGame:
         if self.font:
             score_text = self.font.render(f"Score: {self.game_state.pacman.score if self.game_state.pacman else 0}", True, WHITE)
             lives_text = self.font.render(f"Lives: {self.game_state.pacman.lives if self.game_state.pacman else 0}", True, WHITE)
-            self.screen.blit(score_text, (10, WINDOW_HEIGHT - 40))
-            self.screen.blit(lives_text, (WINDOW_WIDTH - 150, WINDOW_HEIGHT - 40))
+            self.screen.blit(score_text, (10, WINDOW_HEIGHT - 25))
+            self.screen.blit(lives_text, (WINDOW_WIDTH - 100, WINDOW_HEIGHT - 25))
 
         pygame.display.flip()
         if self.clock:
