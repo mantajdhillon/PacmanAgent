@@ -43,7 +43,7 @@ class GamePlayer:
                     self.game.reset()
                     self.move_count = 0
                     print("\n[RESET] Game reset!")
-                    
+
         if not self.paused:
             if self.autoplay:
                 game_state = self.game.game_state
@@ -196,8 +196,8 @@ class GamePlayer:
                 self.render()
                 pygame.display.flip()
 
-                # Pause the thread for 2 seconds
-                pygame.time.delay(2000)
+                # Pause the thread for 5 seconds
+                pygame.time.delay(5000)
 
                 # Break the loop
                 self.running = False

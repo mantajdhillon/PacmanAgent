@@ -274,9 +274,14 @@ class GameState:
             if ghost_idx >= len(self.ghosts): return []
             x, y = self.ghosts[ghost_idx].position.x, self.ghosts[ghost_idx].position.y
 
+        ghost_house_area = [(9, 10), (10, 10), (11, 10), (9, 9), (10, 9), (11, 9)]
+
         # Validate which moves are open
         for dx, dy in directions:
             new_x, new_y = x + dx, y + dy
+            if agent_index == 0 and (new_x, new_y) in ghost_house_area:
+                continue
+
             if not self.board.is_wall(new_x, new_y):
                 legal_actions.append((dx, dy))
 

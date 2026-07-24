@@ -3,9 +3,10 @@
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 from game_state import GameState, Position
+from collections import deque
 from config import BOARD_WIDTH, BOARD_HEIGHT
 
-
+MAX_GHOSTS = 4
 class FeatureExtractor:
     """Extracts and processes features from game state."""
 
@@ -149,11 +150,15 @@ class FeatureExtractor:
         direction_map = {(0, -1): [1, 0, 0, 0], (0, 1): [0, 1, 0, 0], (-1, 0): [0, 0, 1, 0], (1, 0): [0, 0, 0, 1], (0, 0): [0, 0, 0, 0]}
         vector.extend(direction_map.get(pacman.direction, [0, 0, 0, 0]))
 
-        # Ghost positions and scared states
-        for ghost in game_state.ghosts:
-            vector.append(ghost.position.x / self.board_width)
-            vector.append(ghost.position.y / self.board_height)
-            vector.append(1 if ghost.scared else 0)
+        for i in range(MAX_GHOSTS):
+            if i < len(game_state.ghosts):
+                ghost = game_state.ghosts[i]
+                vector.append(ghost.position.x / self.board_width)
+                vector.append(ghost.position.y / self.board_height)
+                vector.append(1 if ghost.scared else 0)
+            else:
+                # Pad eaten ghosts with zeros so the array shape never changes (For Q-Learning)
+                vector.extend([0.0, 0.0, 0.0])
 
         # Pellet information
         vector.append(features["pellets"]["pellet_count"] / max(1, features["pellets"]["pellet_count"] + features["pellets"]["power_pellet_count"]))
@@ -181,8 +186,6 @@ class FeatureExtractor:
 
     def get_reachable_positions(self, game_state: GameState, pos: Tuple[int, int], max_distance: int) -> List[Tuple[int, int]]:
         """Get all reachable positions within max_distance (BFS)."""
-        from collections import deque
-
         visited = set()
         queue = deque([(pos, 0)])
         reachable = []
@@ -205,3 +208,88 @@ class FeatureExtractor:
                     queue.append((next_pos, dist + 1))
 
         return reachable
+    
+    def _maze_distance(self, game_state: GameState, start: Tuple[int, int], targets: List[Tuple[int, int]]) -> int:
+        if not targets:
+            return -1
+            
+        queue = deque([(start, 0)])
+        visited = {start}
+        target_set = set(targets)
+        
+        while queue:
+            pos, dist = queue.popleft()
+
+            if dist > 15:
+                return -1
+            
+            if pos in target_set:
+                return dist
+                
+            x, y = pos
+            for dx, dy in [(0, -1), (0, 1), (1, 0), (-1, 0)]:
+                next_pos = (x + dx, y + dy)
+                if next_pos not in visited and not game_state.board.is_wall(*next_pos):
+                    visited.add(next_pos)
+                    queue.append((next_pos, dist + 1))
+                    
+        return -1
+
+    def get_q_features(self, state: GameState, successor_state: GameState) -> np.ndarray:
+        pacman = successor_state.pacman
+        if not pacman:
+            return np.zeros(6, dtype=np.float32)
+            
+        pacman_pos = pacman.position.to_tuple()
+        features = []
+        
+        
+        features.append(1.0)
+
+        eats_food = 1.0 if successor_state.pellets_eaten > state.pellets_eaten else 0.0
+        features.append(eats_food)
+        
+        pellets = successor_state.board.get_pellets()
+        if pellets:
+            dist = self._maze_distance(successor_state, pacman_pos, pellets)
+            if dist > 0:
+                features.append(1.0 / dist)
+            elif dist == 0:
+                features.append(1.0)
+            else:
+                features.append(0.0)
+        else:
+            features.append(0.0)
+            
+        danger = 0.0
+        min_ghost_dist = float('inf')
+        
+        for ghost in successor_state.ghosts:
+            if not ghost.scared:
+                g_dist = self._manhattan_distance(pacman_pos, ghost.position.to_tuple())
+                if g_dist < min_ghost_dist:
+                    min_ghost_dist = g_dist
+                
+                if g_dist <= 1:
+                    danger = 1.0
+                    
+        features.append(danger)
+        
+        if min_ghost_dist != float('inf') and min_ghost_dist > 0:
+            features.append(1.0 / min_ghost_dist)
+        else:
+            features.append(0.0)
+            
+        min_scared_dist = float('inf')
+        for ghost in successor_state.ghosts:
+            if ghost.scared:
+                g_dist = self._manhattan_distance(pacman_pos, ghost.position.to_tuple())
+                if g_dist < min_scared_dist:
+                    min_scared_dist = g_dist
+                    
+        if min_scared_dist != float('inf') and min_scared_dist > 0:
+            features.append(1.0 / min_scared_dist)
+        else:
+            features.append(0.0)
+            
+        return np.array(features, dtype=np.float32)
