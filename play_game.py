@@ -3,6 +3,7 @@
 import pygame
 from astar_agent import AStarPacmanAgent
 from minimax_agent import MinimaxPacmanAgent
+from minimax_ghost_agent import MinimaxGhostAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
@@ -21,6 +22,7 @@ class GamePlayer:
         self.current_ai_mode = "A* AUTOPLAY"
         self.astar_agent = AStarPacmanAgent()
         self.minimax_agent = MinimaxPacmanAgent(depth=2)
+        self.ghost_minimax_agent = MinimaxGhostAgent(depth=1)
         self.move_count = 0
         self.frame_count = 0
 
@@ -81,14 +83,24 @@ class GamePlayer:
                     self.move_count += 1
 
     def update_ghosts(self):
-        """Simple ghost AI - random movement."""
+        """Use Minimax attack for normal ghosts and fallback movement when scared."""
         import random
         directions = [UP, DOWN, LEFT, RIGHT]
 
         for i in range(len(self.game.game_state.ghosts)):
-            # Try random direction, keep current direction if it hits a wall
-            direction = random.choice(directions)
-            self.game.move_ghost(i, direction)
+            ghost = self.game.game_state.ghosts[i]
+            if ghost.scared:
+                # Requirement 4 will replace this with defensive ghost Minimax.
+                action = random.choice(directions)
+            else:
+                # Requirement 2: every normal ghost attacks at every distance.
+                action = self.ghost_minimax_agent.get_action(
+                    self.game.game_state,
+                    i,
+                )
+
+            if action != (0, 0):
+                self.game.move_ghost(i, action)
 
     def update(self):
         """Update game state."""

@@ -14,13 +14,35 @@ class MinimaxPacmanAgent:
         self.depth = depth
         self.memo = {}
         self.active_threat_radius = threat_distance
+        self.distance_cache = {}
+        self.board_signature_cache = {}
 
 
-    @staticmethod
-    def _maze_distance(board, start, target, max_distance=None):
+    def _board_signature(self, board):
+        """Return the wall-only signature shared by cloned search boards."""
+        board_id = id(board)
+        if board_id not in self.board_signature_cache:
+            self.board_signature_cache[board_id] = (
+                board.width,
+                board.height,
+                (board.board == 1).tobytes(),
+            )
+        return self.board_signature_cache[board_id]
+
+
+    def _maze_distance(self, board, start, target, max_distance=None):
         """Return shortest walkable distance, or math.inf when unreachable."""
         if start == target:
             return 0
+
+        endpoints = tuple(sorted((start, target)))
+        cache_key = (
+            self._board_signature(board),
+            endpoints,
+            max_distance,
+        )
+        if cache_key in self.distance_cache:
+            return self.distance_cache[cache_key]
 
         queue = deque([(start, 0)])
         visited = {start}
@@ -35,10 +57,13 @@ class MinimaxPacmanAgent:
                 if neighbor in visited or board.is_wall(*neighbor):
                     continue
                 if neighbor == target:
-                    return distance + 1
+                    result = distance + 1
+                    self.distance_cache[cache_key] = result
+                    return result
                 visited.add(neighbor)
                 queue.append((neighbor, distance + 1))
 
+        self.distance_cache[cache_key] = math.inf
         return math.inf
 
 
@@ -131,19 +156,38 @@ class MinimaxPacmanAgent:
 
 
     def _nearest_food_distance(self, state):
-        """Shortest maze distance to any remaining food item."""
+        """
+        Find the nearest food with one multi-target BFS.
+
+        The previous implementation ran one complete BFS per pellet, per leaf.
+        This search stops as soon as it reaches any pellet or power pellet.
+        """
         if not state.pacman:
             return math.inf
 
-        food = list(state.board.pellets | state.board.power_pellets)
+        food = state.board.pellets | state.board.power_pellets
         if not food:
             return math.inf
 
         start = state.pacman.position.to_tuple()
-        return min(
-            self._maze_distance(state.board, start, target)
-            for target in food
-        )
+        if start in food:
+            return 0
+
+        queue = deque([(start, 0)])
+        visited = {start}
+
+        while queue:
+            (x, y), distance = queue.popleft()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                neighbor = (x + dx, y + dy)
+                if neighbor in visited or state.board.is_wall(*neighbor):
+                    continue
+                if neighbor in food:
+                    return distance + 1
+                visited.add(neighbor)
+                queue.append((neighbor, distance + 1))
+
+        return math.inf
 
 
     def _get_state_hash(self, state, depth, agent_index) -> int:
@@ -228,6 +272,8 @@ class MinimaxPacmanAgent:
         """
         # Clear the cache
         self.memo.clear()
+        # Distance entries remain valid because their keys include wall layout.
+        self.board_signature_cache.clear()
 
         legal_actions = game_state.get_legal_actions(0)
 

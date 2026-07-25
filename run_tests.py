@@ -330,6 +330,85 @@ def test_minimax_defense():
     print(f"  - Post-Evasion Utility: {eval_score:.2f}")
 
 
+def test_minimax_ghost_attack():
+    """Test Requirement 2: normal ghosts use team Minimax attack."""
+    print("\nTesting normal ghost Minimax attack...")
+    from game_state import (
+        GameBoard,
+        GameState,
+        GhostState,
+        PacmanState,
+        Position,
+    )
+    from minimax_ghost_agent import MinimaxGhostAgent
+
+    def bordered_board(width=9, height=7):
+        board = GameBoard(width, height)
+        for x in range(width):
+            board.add_wall(x, 0)
+            board.add_wall(x, height - 1)
+        for y in range(height):
+            board.add_wall(0, y)
+            board.add_wall(width - 1, y)
+        return board
+
+    agent = MinimaxGhostAgent(depth=1)
+
+    # A normal ghost in an open corridor must reduce maze distance.
+    chase_state = GameState(bordered_board())
+    chase_state.set_pacman(PacmanState(Position(6, 3)))
+    chase_state.add_ghost(
+        GhostState(Position(2, 3), "red", name="Chaser")
+    )
+    chase_action = agent.get_action(chase_state, 0)
+    assert chase_action == RIGHT, (
+        f"Normal ghost should chase Pac-Man to the right, got {chase_action}"
+    )
+
+    # Catching Pac-Man must dominate every non-capturing action.
+    capture_state = GameState(bordered_board())
+    capture_state.set_pacman(PacmanState(Position(5, 3)))
+    capture_state.add_ghost(
+        GhostState(Position(4, 3), "red", name="Catcher")
+    )
+    capture_action = agent.get_action(capture_state, 0)
+    assert capture_action == RIGHT, (
+        f"Adjacent normal ghost must capture Pac-Man, got {capture_action}"
+    )
+    captured = capture_state.generate_successor(1, capture_action)
+    assert captured.pacman.lives == capture_state.pacman.lives - 1, (
+        "Selected capture action must remove one Pac-Man life"
+    )
+
+    # A scared ghost must not activate Requirement 2.
+    chase_state.ghosts[0].scared = True
+    assert agent.get_action(chase_state, 0) == (0, 0), (
+        "Scared ghosts must not use normal attacking Minimax"
+    )
+
+    # Adding a teammate that covers another approach must improve team utility.
+    solo_state = GameState(bordered_board())
+    team_state = GameState(bordered_board())
+    for state in (solo_state, team_state):
+        state.set_pacman(PacmanState(Position(4, 3)))
+        state.add_ghost(
+            GhostState(Position(2, 3), "red", name="LeftPressure")
+        )
+    team_state.add_ghost(
+        GhostState(Position(6, 3), "pink", name="RightPressure")
+    )
+
+    assert agent.evaluate_state(team_state) > agent.evaluate_state(solo_state), (
+        "A coordinated second ghost covering another side must improve attack utility"
+    )
+
+    print("[OK] Normal ghost Minimax attack test passed:")
+    print(f"  - Chase action: {chase_action}")
+    print(f"  - Capture action: {capture_action}")
+    print("  - Scared ghost correctly excluded")
+    print("  - Team pressure improves shared utility")
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -348,6 +427,7 @@ def main():
         test_all_features()
         test_astar_pathfinding()
         test_minimax_defense()
+        test_minimax_ghost_attack()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")

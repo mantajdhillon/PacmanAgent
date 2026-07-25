@@ -1,20 +1,22 @@
-"""Headless demo for Epic 3 Minimax evasion and survival testing."""
+"""Headless demo for Pac-Man defense and normal-ghost Minimax attack."""
 
 import time
 import random
 from minimax_agent import MinimaxPacmanAgent
+from minimax_ghost_agent import MinimaxGhostAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT
 
 def run_demo(max_steps: int = 200):
     """
-    Run Pac-Man with Minimax only to measure survival time and computational speed.
+    Run defensive Pac-Man and attacking normal ghosts with Minimax.
     """
     game = PacmanGame(display=False)
     game.reset()
 
     # Instantiate the optimized agent
     agent = MinimaxPacmanAgent(depth=2)
+    ghost_agent = MinimaxGhostAgent(depth=1)
 
     initial_lives = game.game_state.pacman.lives
     steps = 0
@@ -33,11 +35,15 @@ def run_demo(max_steps: int = 200):
                 # If Minimax chooses a wall, the algorithm is mathematically broken.
                 raise RuntimeError(f"FATAL: Minimax selected an illegal move into a wall: {action}")
 
-        # Adversary Phase: Simulate headless ghost movement
-        directions = [UP, DOWN, LEFT, RIGHT]
+        # Adversary Phase: normal ghosts use team-oriented Minimax attack.
         for i in range(len(game.game_state.ghosts)):
-            # Random movement acts as a proxy for testing basic evasion
-            game.move_ghost(i, random.choice(directions))
+            ghost = game.game_state.ghosts[i]
+            if ghost.scared:
+                action = random.choice([UP, DOWN, LEFT, RIGHT])
+            else:
+                action = ghost_agent.get_action(game.game_state, i)
+            if action != (0, 0):
+                game.move_ghost(i, action)
 
         # State Resolution Phase
         game.check_collisions()
@@ -57,6 +63,7 @@ def run_demo(max_steps: int = 200):
     print("=" * 60)
     print(f"Target Depth limit    : {agent.depth}")
     print(f"Threat Pruning Radius : {agent.active_threat_radius}")
+    print(f"Ghost Attack Depth    : {ghost_agent.depth}")
     print("-" * 60)
     print(f"Survival Frames       : {steps} / {max_steps}")
     print(f"Lives Remaining       : {game.game_state.pacman.lives} / {initial_lives}")
