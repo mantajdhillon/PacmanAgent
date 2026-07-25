@@ -43,7 +43,6 @@ class PacmanGame:
         self._setup_maze()
 
     def _setup_maze(self):
-        """Initialize the classic Pac-Man maze layout."""
         # Create borders
         for x in range(BOARD_WIDTH):
             self.board.add_wall(x, 0)
@@ -53,38 +52,27 @@ class PacmanGame:
             self.board.add_wall(0, y)
             self.board.add_wall(BOARD_WIDTH - 1, y)
 
-        # Add interior walls (simplified layout)
         self._add_interior_walls()
 
-        # Add pellets
         for x in range(1, BOARD_WIDTH - 1):
             for y in range(1, BOARD_HEIGHT - 1):
                 if not self.board.is_wall(x, y):
-                    self.board.add_pellet(x, y)
+                    in_ghost_house = (7 <= x <= 13) and (8 <= y <= 11)
+                    if not in_ghost_house:
+                        self.board.add_pellet(x, y)
 
-        # Add power pellets at corners
-        power_pellet_positions = [
-            (1, 1), (BOARD_WIDTH - 2, 1),
-            (1, BOARD_HEIGHT - 2), (BOARD_WIDTH - 2, BOARD_HEIGHT - 2)
-        ]
+        power_pellet_positions = [(1, 3), (19, 3), (1, 15), (19, 15)]
         for x, y in power_pellet_positions:
             if not self.board.is_wall(x, y):
                 self.board.remove_pellet(x, y)
                 self.board.add_power_pellet(x, y)
 
-        # Initialize Pac-Man at center
-        pacman = PacmanState(Position(BOARD_WIDTH // 2, BOARD_HEIGHT // 2))
+        pacman = PacmanState(Position(10, 15))
         self.game_state.set_pacman(pacman)
 
-        # Initialize ghosts
         ghost_colors = ["red", "pink", "cyan", "orange"]
         ghost_names = ["Blinky", "Pinky", "Inky", "Clyde"]
-        ghost_start_positions = [
-            (BOARD_WIDTH // 2 - 2, BOARD_HEIGHT // 2 - 2),
-            (BOARD_WIDTH // 2 + 2, BOARD_HEIGHT // 2 - 2),
-            (BOARD_WIDTH // 2 - 2, BOARD_HEIGHT // 2 + 2),
-            (BOARD_WIDTH // 2 + 2, BOARD_HEIGHT // 2 + 2),
-        ]
+        ghost_start_positions = [(9, 10), (10, 10), (11, 10), (10, 9)]
 
         for i, (color, name, (x, y)) in enumerate(zip(ghost_colors, ghost_names, ghost_start_positions)):
             if not self.board.is_wall(x, y):
@@ -92,15 +80,31 @@ class PacmanGame:
                 self.game_state.add_ghost(ghost)
 
     def _add_interior_walls(self):
-        """Add interior walls to create maze structure."""
-        # Simple maze pattern - you can customize this
         wall_patterns = [
-            # Vertical walls
-            (5, range(3, BOARD_HEIGHT - 3, 4)),
-            (9, range(3, BOARD_HEIGHT - 3, 4)),
-            (13, range(3, BOARD_HEIGHT - 3, 4)),
-            # Horizontal walls
-            (range(2, BOARD_WIDTH - 2), [7, 14]),
+            (10, [1, 2, 3, 6, 7, 14, 15, 17, 18]),
+
+            (range(2, 5), [2, 3, 5, 14]),
+            (range(16, 19), [2, 3, 5, 14]),
+
+            (range(6, 9), [2, 3, 7, 14]),
+            (range(12, 15), [2, 3, 7, 14]),
+
+            (range(8, 13), [5, 11, 16]),
+
+            (6, [5, 6, 8, 9, 10, 11, 16, 17]),
+            (14, [5, 6, 8, 9, 10, 11, 16, 17]),
+
+            (range(1, 5), [7, 8, 9, 10, 11, 12, 16]),
+            (range(16, 20), [7, 8, 9, 10, 11, 12, 16]),
+
+            (8, [9, 10]),
+            (12, [9, 10]),
+
+            (4, [15]),
+            (16, [15]),
+
+            (range(2, 9), [18]),
+            (range(12, 19), [18]),
         ]
 
         for x_or_range, y_or_range in wall_patterns:
@@ -217,11 +221,13 @@ class PacmanGame:
 
     def _reset_positions(self):
         """Reset Pac-Man and ghost positions after collision."""
-        self.game_state.pacman.position = Position(BOARD_WIDTH // 2, BOARD_HEIGHT // 2)
+        self.game_state.pacman.position = Position(10, 15)
+        ghost_start_positions = [(9, 10),(10, 10),(11, 10),(10, 9)]
+
         for i, ghost in enumerate(self.game_state.ghosts):
-            base_x = BOARD_WIDTH // 2 + (i - 1) * 2
-            base_y = BOARD_HEIGHT // 2 + (i // 2) * 2
-            ghost.position = Position(base_x, base_y)
+            if i < len(ghost_start_positions):
+                x, y = ghost_start_positions[i]
+                ghost.position = Position(x, y)
 
     def check_win_condition(self) -> bool:
         """
@@ -315,8 +321,8 @@ class PacmanGame:
         if self.font:
             score_text = self.font.render(f"Score: {self.game_state.pacman.score if self.game_state.pacman else 0}", True, WHITE)
             lives_text = self.font.render(f"Lives: {self.game_state.pacman.lives if self.game_state.pacman else 0}", True, WHITE)
-            self.screen.blit(score_text, (10, WINDOW_HEIGHT - 40))
-            self.screen.blit(lives_text, (WINDOW_WIDTH - 150, WINDOW_HEIGHT - 40))
+            self.screen.blit(score_text, (10, WINDOW_HEIGHT - 25))
+            self.screen.blit(lives_text, (WINDOW_WIDTH - 100, WINDOW_HEIGHT - 25))
 
         pygame.display.flip()
         if self.clock:

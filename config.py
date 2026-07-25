@@ -1,7 +1,7 @@
 """Game configuration constants."""
 
 # Board dimensions
-BOARD_WIDTH = 19
+BOARD_WIDTH = 21
 BOARD_HEIGHT = 21
 
 # Display settings
