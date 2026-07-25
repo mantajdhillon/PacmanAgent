@@ -47,21 +47,9 @@ class GamePlayer:
         if not self.paused:
             if self.autoplay:
                 game_state = self.game.game_state
-                pacman_pos = game_state.pacman.position
 
-                # Find the nearest dangerous ghost
-                nearest_threat_dist = float('inf')
-
-                for ghost in game_state.ghosts:
-                    if not ghost.scared:
-                        dist = abs(pacman_pos.x - ghost.position.x) + abs(pacman_pos.y - ghost.position.y)
-                        if dist < nearest_threat_dist:
-                            nearest_threat_dist = dist
-
-                # Orchestrator Logic
-                THREAT_RADIUS = 5  # Grid squares
-
-                if nearest_threat_dist <= THREAT_RADIUS:
+                # Use one maze-distance definition for both activation and search.
+                if self.minimax_agent.is_threat_nearby(game_state):
                     # DANGER: Engage Defensive Minimax
                     self.current_ai_mode = "MINIMAX"
                     pygame.event.pump()

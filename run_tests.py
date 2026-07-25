@@ -202,20 +202,27 @@ def test_astar_pathfinding():
 
 
 def test_minimax_defense():
-    """Test Epic 3 Minimax defensive evasion."""
+    """Test Normal Pac-Man defensive Minimax."""
     print("\nTesting Minimax defense...")
     from game_engine import PacmanGame
     from minimax_agent import MinimaxPacmanAgent
-    from game_state import GhostState, Position
+    from game_state import (
+        GameBoard,
+        GameState,
+        GhostState,
+        PacmanState,
+        Position,
+    )
     import time
 
     game = PacmanGame(display=False)
     agent = MinimaxPacmanAgent(depth=2)
+    assert agent.active_threat_radius == 5, "Defensive threshold must be 5"
 
     # Isolate the Environment
     # Clear all existing ghosts to ensure the AI is only evaluating our test threat
     game.game_state.ghosts.clear()
-    pacman_pos = game.game_state.pacman.position
+    pacman_start = game.game_state.pacman.position.to_tuple()
 
     # Manufacture a Mortal Threat
     legal_moves = game.game_state.get_legal_actions(0)
@@ -223,11 +230,14 @@ def test_minimax_defense():
 
     # Take the first available legal move and place a ghost exactly there
     threat_dir = legal_moves[0]
-    threat_x = pacman_pos.x + threat_dir[0]
-    threat_y = pacman_pos.y + threat_dir[1]
+    threat_x = pacman_start[0] + threat_dir[0]
+    threat_y = pacman_start[1] + threat_dir[1]
 
     assassin_ghost = GhostState(Position(threat_x, threat_y), "red", name="TestThreat")
     game.game_state.add_ghost(assassin_ghost)
+    assert agent.is_threat_nearby(game.game_state), (
+        "A normal ghost inside distance 5 must activate defensive Minimax"
+    )
 
     # Execute the AI Decision
     start_time = time.time()
@@ -249,9 +259,70 @@ def test_minimax_defense():
     eval_score = agent.evaluate_state(game.game_state)
     assert isinstance(eval_score, float), "Evaluation function must return a float"
 
+    # Scared ghosts are not dangerous in Requirement 1.
+    assassin_ghost.scared = True
+    assert not agent.is_threat_nearby(game.game_state), (
+        "A scared ghost must not activate normal defensive Minimax"
+    )
+    assassin_ghost.scared = False
+
+    # The boundary is inclusive: distance 5 activates, distance 6 does not.
+    threshold_board = GameBoard(9, 5)
+    for x in range(threshold_board.width):
+        threshold_board.add_wall(x, 0)
+        threshold_board.add_wall(x, threshold_board.height - 1)
+    for y in range(threshold_board.height):
+        threshold_board.add_wall(0, y)
+        threshold_board.add_wall(threshold_board.width - 1, y)
+
+    threshold_state = GameState(threshold_board)
+    threshold_state.set_pacman(PacmanState(Position(1, 2)))
+    threshold_state.add_ghost(GhostState(Position(6, 2), "red", name="AtFive"))
+    assert agent.is_threat_nearby(threshold_state), (
+        "A normal ghost at maze distance exactly 5 must activate Minimax"
+    )
+    threshold_state.ghosts[0].position = Position(7, 2)
+    assert not agent.is_threat_nearby(threshold_state), (
+        "A normal ghost beyond maze distance 5 must not activate Minimax"
+    )
+
+    # With equal threat distance, open space must outrank a one-exit dead end.
+    open_board = GameBoard(7, 8)
+    trapped_board = GameBoard(7, 8)
+    for board in (open_board, trapped_board):
+        for x in range(board.width):
+            board.add_wall(x, 0)
+            board.add_wall(x, board.height - 1)
+        for y in range(board.height):
+            board.add_wall(0, y)
+            board.add_wall(board.width - 1, y)
+
+    # Only the downward move remains legal in the trapped state.
+    for wall_x, wall_y in ((3, 2), (2, 3), (4, 3)):
+        trapped_board.add_wall(wall_x, wall_y)
+
+    open_state = GameState(open_board)
+    trapped_state = GameState(trapped_board)
+    for state in (open_state, trapped_state):
+        state.set_pacman(PacmanState(Position(3, 3)))
+        state.add_ghost(GhostState(Position(3, 6), "red", name="MazeThreat"))
+
+    assert agent.evaluate_state(open_state) > agent.evaluate_state(trapped_state), (
+        "With equal threat distance, Pac-Man must prefer escape space over a dead end"
+    )
+
+    # Losing a life must dominate the secondary reward from food or score.
+    full_lives_state = game.game_state.clone()
+    lost_life_state = game.game_state.clone()
+    lost_life_state.pacman.lives -= 1
+    lost_life_state.pacman.score += 1_000
+    assert agent.evaluate_state(full_lives_state) > agent.evaluate_state(lost_life_state), (
+        "Preserving a life must be worth more than secondary score gains"
+    )
+
     # Output Metrics
     print("[OK] Minimax defense test passed:")
-    print(f"  - Initial Position: {pacman_pos.to_tuple()}")
+    print(f"  - Initial Position: {pacman_start}")
     print(f"  - Threat Injected At: ({threat_x}, {threat_y})")
     print(f"  - Threat Direction: {threat_dir}")
     print(f"  - Evasion Action: {action} (Survival Confirmed)")
