@@ -3,8 +3,9 @@
 import pygame
 from astar_agent import AStarPacmanAgent
 from minimax_agent import MinimaxPacmanAgent
-from minimax_ghost_agent import MinimaxGhostAgent
-from minimax_scared_ghost_agent import MinimaxScaredGhostAttackAgent
+from minimax_ghost import MinimaxGhostAgent
+from minimax_attack_agent import MinimaxScaredGhostAttackAgent
+from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
@@ -27,6 +28,10 @@ class GamePlayer:
         self.scared_ghost_attack_agent = MinimaxScaredGhostAttackAgent(
             safety_distance=5,
             timer_margin=2,
+        )
+        self.scared_ghost_defense_agent = MinimaxScaredGhostDefenseAgent(
+            activation_distance=5,
+            escape_horizon=4,
         )
         self.move_count = 0
         self.frame_count = 0
@@ -98,15 +103,15 @@ class GamePlayer:
                     self.move_count += 1
 
     def update_ghosts(self):
-        """Use Minimax attack for normal ghosts and fallback movement when scared."""
-        import random
-        directions = [UP, DOWN, LEFT, RIGHT]
+        """Use role-appropriate Minimax or flee behavior for every ghost."""
 
         for i in range(len(self.game.game_state.ghosts)):
             ghost = self.game.game_state.ghosts[i]
             if ghost.scared:
-                # Requirement 4 will replace this with defensive ghost Minimax.
-                action = random.choice(directions)
+                action = self.scared_ghost_defense_agent.get_action(
+                    self.game.game_state,
+                    i,
+                )
             else:
                 # Requirement 2: every normal ghost attacks at every distance.
                 action = self.ghost_minimax_agent.get_action(

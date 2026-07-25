@@ -340,7 +340,7 @@ def test_minimax_ghost_attack():
         PacmanState,
         Position,
     )
-    from minimax_ghost_agent import MinimaxGhostAgent
+    from minimax_ghost import MinimaxGhostAgent
 
     def bordered_board(width=9, height=7):
         board = GameBoard(width, height)
@@ -419,7 +419,7 @@ def test_minimax_scared_ghost_attack():
         PacmanState,
         Position,
     )
-    from minimax_scared_ghost_agent import MinimaxScaredGhostAttackAgent
+    from minimax_attack_agent import MinimaxScaredGhostAttackAgent
 
     def bordered_board(width=13, height=7):
         board = GameBoard(width, height)
@@ -564,6 +564,157 @@ def test_minimax_scared_ghost_attack():
     print("  - Timer feasibility and target preference confirmed")
 
 
+def test_minimax_scared_ghost_defense():
+    """Test Requirement 4: scared ghosts defend until their timer expires."""
+    print("\nTesting scared-ghost Minimax defense...")
+    from game_state import (
+        GameBoard,
+        GameState,
+        GhostState,
+        PacmanState,
+        Position,
+    )
+    from minimax_defense_ghost import (
+        MinimaxScaredGhostDefenseAgent,
+    )
+
+    def bordered_board(width=13, height=9):
+        board = GameBoard(width, height)
+        for x in range(width):
+            board.add_wall(x, 0)
+            board.add_wall(x, height - 1)
+        for y in range(height):
+            board.add_wall(0, y)
+            board.add_wall(width - 1, y)
+        return board
+
+    agent = MinimaxScaredGhostDefenseAgent(
+        activation_distance=5,
+        escape_horizon=4,
+    )
+
+    # Exactly distance 5 activates Minimax; distance 6 uses greedy fallback.
+    threshold_state = GameState(bordered_board())
+    threshold_state.set_pacman(PacmanState(Position(2, 4)))
+    threshold_state.add_ghost(
+        GhostState(
+            Position(7, 4),
+            "blue",
+            scared=True,
+            scared_timer=20,
+            name="ThresholdGhost",
+        )
+    )
+    assert agent.is_minimax_active(threshold_state, 0), (
+        "Scared ghost at maze distance exactly 5 must activate Minimax"
+    )
+    threshold_state.ghosts[0].position = Position(8, 4)
+    assert not agent.is_minimax_active(threshold_state, 0), (
+        "Scared ghost beyond distance 5 must use the fallback policy"
+    )
+
+    # Nearby scared ghost must avoid moving into Pac-Man and increase distance.
+    defense_state = GameState(bordered_board())
+    defense_state.set_pacman(PacmanState(Position(5, 4)))
+    defense_state.add_ghost(
+        GhostState(
+            Position(6, 4),
+            "blue",
+            scared=True,
+            scared_timer=20,
+            name="Defender",
+        )
+    )
+    defense_action = agent.get_action(defense_state, 0)
+    assert defense_action != LEFT, (
+        "Scared ghost must not move into Pac-Man and be captured"
+    )
+    defended_state = defense_state.generate_successor(1, defense_action)
+    defended_ghost = agent._find_ghost(defended_state, "Defender")
+    assert defended_ghost is not None, "Defensive action must preserve the ghost"
+    assert (
+        agent._pacman_distance(defended_state, defended_ghost) > 1
+    ), "Defensive action must increase distance from adjacent Pac-Man"
+
+    # Outside radius 5, fallback must continue fleeing rather than attack.
+    fallback_state = GameState(bordered_board())
+    fallback_state.set_pacman(PacmanState(Position(2, 4)))
+    fallback_state.add_ghost(
+        GhostState(
+            Position(8, 4),
+            "blue",
+            scared=True,
+            scared_timer=20,
+            name="FarScared",
+        )
+    )
+    fallback_action = agent.get_action(fallback_state, 0)
+    initial_fallback_distance = agent._pacman_distance(
+        fallback_state,
+        fallback_state.ghosts[0],
+    )
+    fallback_successor = fallback_state.generate_successor(
+        1,
+        fallback_action,
+    )
+    fallback_ghost = agent._find_ghost(fallback_successor, "FarScared")
+    assert (
+        fallback_ghost is not None
+        and agent._pacman_distance(fallback_successor, fallback_ghost)
+        > initial_fallback_distance
+    ), (
+        f"Far scared ghost fallback must increase maze distance, got {fallback_action}"
+    )
+
+    # Equal-distance open space must outrank a one-exit dead end.
+    open_board = bordered_board()
+    trapped_board = bordered_board()
+    for wall_position in ((6, 3), (5, 4), (6, 5)):
+        trapped_board.add_wall(*wall_position)
+
+    open_state = GameState(open_board)
+    trapped_state = GameState(trapped_board)
+    for state in (open_state, trapped_state):
+        state.set_pacman(PacmanState(Position(3, 4)))
+        state.add_ghost(
+            GhostState(
+                Position(6, 4),
+                "blue",
+                scared=True,
+                scared_timer=20,
+                name="SpaceGhost",
+            )
+        )
+
+    assert (
+        agent.evaluate_state(open_state, "SpaceGhost")
+        > agent.evaluate_state(trapped_state, "SpaceGhost")
+    ), "Scared ghost must prefer open escape space over a dead end"
+
+    # Surviving the final scared round must dominate nonterminal states.
+    expiry_state = defense_state.clone()
+    expiry_state.ghosts[0].scared_timer = 1
+    assert (
+        agent.evaluate_state(
+            expiry_state,
+            "Defender",
+            elapsed_rounds=1,
+        )
+        >= 900_000_000.0
+    ), "Surviving until the scared timer expires must be terminally valuable"
+
+    # A normal ghost must not activate scared-defense behavior.
+    defense_state.ghosts[0].scared = False
+    assert agent.get_action(defense_state, 0) == (0, 0), (
+        "Normal ghosts must remain under Requirement 2 attack control"
+    )
+
+    print("[OK] Scared-ghost Minimax defense test passed:")
+    print(f"  - Defensive action: {defense_action}")
+    print(f"  - Far fallback action: {fallback_action}")
+    print("  - Dead-end avoidance and timer survival confirmed")
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -584,6 +735,7 @@ def main():
         test_minimax_defense()
         test_minimax_ghost_attack()
         test_minimax_scared_ghost_attack()
+        test_minimax_scared_ghost_defense()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")

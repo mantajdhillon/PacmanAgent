@@ -1,11 +1,11 @@
 """Headless demo for Pac-Man defense and normal-ghost Minimax attack."""
 
 import time
-import random
 from astar_agent import AStarPacmanAgent
 from minimax_agent import MinimaxPacmanAgent
-from minimax_ghost_agent import MinimaxGhostAgent
-from minimax_scared_ghost_agent import MinimaxScaredGhostAttackAgent
+from minimax_ghost import MinimaxGhostAgent
+from minimax_attack_agent import MinimaxScaredGhostAttackAgent
+from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT
 
@@ -24,7 +24,16 @@ def run_demo(max_steps: int = 200):
         safety_distance=5,
         timer_margin=2,
     )
+    scared_defense_agent = MinimaxScaredGhostDefenseAgent(
+        activation_distance=5,
+        escape_horizon=4,
+    )
     mode_counts = {"A*": 0, "DEFENSE": 0, "SCARED ATTACK": 0}
+    ghost_mode_counts = {
+        "NORMAL ATTACK": 0,
+        "SCARED DEFENSE": 0,
+        "SCARED FLEE": 0,
+    }
 
     initial_lives = game.game_state.pacman.lives
     steps = 0
@@ -62,8 +71,19 @@ def run_demo(max_steps: int = 200):
         for i in range(len(game.game_state.ghosts)):
             ghost = game.game_state.ghosts[i]
             if ghost.scared:
-                action = random.choice([UP, DOWN, LEFT, RIGHT])
+                if scared_defense_agent.is_minimax_active(
+                    game.game_state,
+                    i,
+                ):
+                    ghost_mode_counts["SCARED DEFENSE"] += 1
+                else:
+                    ghost_mode_counts["SCARED FLEE"] += 1
+                action = scared_defense_agent.get_action(
+                    game.game_state,
+                    i,
+                )
             else:
+                ghost_mode_counts["NORMAL ATTACK"] += 1
                 action = ghost_agent.get_action(game.game_state, i)
             if action != (0, 0):
                 game.move_ghost(i, action)
@@ -88,6 +108,7 @@ def run_demo(max_steps: int = 200):
     print(f"Threat Pruning Radius : {agent.active_threat_radius}")
     print(f"Ghost Attack Depth    : {ghost_agent.depth}")
     print(f"Pac-Man Modes         : {mode_counts}")
+    print(f"Ghost Modes           : {ghost_mode_counts}")
     print("-" * 60)
     print(f"Survival Frames       : {steps} / {max_steps}")
     print(f"Lives Remaining       : {game.game_state.pacman.lives} / {initial_lives}")
