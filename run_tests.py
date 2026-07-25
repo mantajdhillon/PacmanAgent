@@ -409,6 +409,161 @@ def test_minimax_ghost_attack():
     print("  - Team pressure improves shared utility")
 
 
+def test_minimax_scared_ghost_attack():
+    """Test Requirement 3: Pac-Man safely attacks viable scared ghosts."""
+    print("\nTesting Pac-Man scared-ghost Minimax attack...")
+    from game_state import (
+        GameBoard,
+        GameState,
+        GhostState,
+        PacmanState,
+        Position,
+    )
+    from minimax_scared_ghost_agent import MinimaxScaredGhostAttackAgent
+
+    def bordered_board(width=13, height=7):
+        board = GameBoard(width, height)
+        for x in range(width):
+            board.add_wall(x, 0)
+            board.add_wall(x, height - 1)
+        for y in range(height):
+            board.add_wall(0, y)
+            board.add_wall(width - 1, y)
+        return board
+
+    agent = MinimaxScaredGhostAttackAgent(
+        safety_distance=5,
+        timer_margin=2,
+    )
+
+    # A reachable scared ghost with enough timer must activate the policy.
+    chase_state = GameState(bordered_board())
+    chase_state.set_pacman(PacmanState(Position(3, 3)))
+    chase_state.add_ghost(
+        GhostState(
+            Position(7, 3),
+            "blue",
+            scared=True,
+            scared_timer=20,
+            name="Edible",
+        )
+    )
+    assert agent.select_target(chase_state) == "Edible", (
+        "Reachable scared ghost with sufficient timer must be selected"
+    )
+    chase_action = agent.get_action(chase_state, "Edible")
+    assert chase_action == RIGHT, (
+        f"Pac-Man should reduce distance to the scared ghost, got {chase_action}"
+    )
+
+    # A timer that cannot cover travel plus margin must reject the chase.
+    chase_state.ghosts[0].scared_timer = 6
+    assert agent.select_target(chase_state) is None, (
+        "Pac-Man must reject a target without sufficient timer margin"
+    )
+    chase_state.ghosts[0].scared_timer = 20
+
+    # A nearby normal ghost has priority over an edible target.
+    chase_state.add_ghost(
+        GhostState(Position(3, 5), "red", name="NormalThreat")
+    )
+    assert agent.select_target(chase_state) is None, (
+        "Nearby normal ghost must prevent scared-ghost chase activation"
+    )
+    chase_state.ghosts.pop()
+
+    # An adjacent scared ghost must be captured immediately.
+    capture_state = GameState(bordered_board())
+    capture_state.set_pacman(PacmanState(Position(4, 3)))
+    capture_state.add_ghost(
+        GhostState(
+            Position(5, 3),
+            "blue",
+            scared=True,
+            scared_timer=10,
+            name="CaptureTarget",
+        )
+    )
+    capture_action = agent.get_action(capture_state, "CaptureTarget")
+    assert capture_action == RIGHT, (
+        f"Pac-Man must capture an adjacent scared ghost, got {capture_action}"
+    )
+    captured_state = capture_state.generate_successor(0, capture_action)
+    assert agent._find_target(captured_state, "CaptureTarget") is None, (
+        "Capture action must remove the scared ghost from the successor"
+    )
+
+    # Prefer the target with greater remaining timer slack.
+    target_state = GameState(bordered_board())
+    target_state.set_pacman(PacmanState(Position(5, 3)))
+    target_state.add_ghost(
+        GhostState(
+            Position(3, 3),
+            "blue",
+            scared=True,
+            scared_timer=8,
+            name="LowSlack",
+        )
+    )
+    target_state.add_ghost(
+        GhostState(
+            Position(9, 3),
+            "blue",
+            scared=True,
+            scared_timer=25,
+            name="HighSlack",
+        )
+    )
+    assert agent.select_target(target_state) == "HighSlack", (
+        "Target selection must prefer a safer remaining-time margin"
+    )
+
+    # A ghost still inside Pac-Man's forbidden ghost house is not reachable.
+    house_board = bordered_board(width=21, height=21)
+    house_state = GameState(house_board)
+    house_state.set_pacman(PacmanState(Position(10, 12)))
+    house_state.add_ghost(
+        GhostState(
+            Position(10, 10),
+            "blue",
+            scared=True,
+            scared_timer=50,
+            name="InsideHouse",
+        )
+    )
+    assert agent.select_target(house_state) is None, (
+        "Pac-Man must not select a target inside its forbidden ghost house"
+    )
+
+    # Do not step into the normal-ghost danger radius just to chase food.
+    safety_state = GameState(bordered_board())
+    safety_state.set_pacman(PacmanState(Position(3, 3)))
+    safety_state.add_ghost(
+        GhostState(
+            Position(7, 3),
+            "blue",
+            scared=True,
+            scared_timer=20,
+            name="RiskyTarget",
+        )
+    )
+    safety_state.add_ghost(
+        GhostState(Position(9, 3), "red", name="DistantNormal")
+    )
+    # Normal ghost begins at maze distance 6, but RIGHT would reduce it to 5.
+    assert agent.select_target(safety_state) == "RiskyTarget"
+    safe_action = agent.get_action(safety_state, "RiskyTarget")
+    assert safe_action != RIGHT, (
+        "Pac-Man must not enter the normal-ghost safety radius while chasing"
+    )
+
+    print("[OK] Pac-Man scared-ghost attack test passed:")
+    print(f"  - Chase action: {chase_action}")
+    print(f"  - Capture action: {capture_action}")
+    print(f"  - Safety-preserving action: {safe_action}")
+    print("  - Timer feasibility and target preference confirmed")
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -428,6 +583,7 @@ def main():
         test_astar_pathfinding()
         test_minimax_defense()
         test_minimax_ghost_attack()
+        test_minimax_scared_ghost_attack()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")

@@ -4,6 +4,7 @@ import pygame
 from astar_agent import AStarPacmanAgent
 from minimax_agent import MinimaxPacmanAgent
 from minimax_ghost_agent import MinimaxGhostAgent
+from minimax_scared_ghost_agent import MinimaxScaredGhostAttackAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
@@ -23,6 +24,10 @@ class GamePlayer:
         self.astar_agent = AStarPacmanAgent()
         self.minimax_agent = MinimaxPacmanAgent(depth=2)
         self.ghost_minimax_agent = MinimaxGhostAgent(depth=1)
+        self.scared_ghost_attack_agent = MinimaxScaredGhostAttackAgent(
+            safety_distance=5,
+            timer_margin=2,
+        )
         self.move_count = 0
         self.frame_count = 0
 
@@ -56,6 +61,16 @@ class GamePlayer:
                     self.current_ai_mode = "MINIMAX"
                     pygame.event.pump()
                     action = self.minimax_agent.get_action(game_state)
+                elif (
+                    target_name
+                    := self.scared_ghost_attack_agent.select_target(game_state)
+                ) is not None:
+                    # SAFE POWER MODE: chase a reachable scared ghost.
+                    self.current_ai_mode = "SCARED ATTACK"
+                    action = self.scared_ghost_attack_agent.get_action(
+                        game_state,
+                        target_name,
+                    )
                 else:
                     # SAFE: Engage Offensive A*
                     self.current_ai_mode = "A*"
@@ -139,6 +154,8 @@ class GamePlayer:
                 mode_text = "A* AUTOPLAY"
             elif self.current_ai_mode == "MINIMAX":
                 mode_text = "MINIMAX AUTOPLAY"
+            elif self.current_ai_mode == "SCARED ATTACK":
+                mode_text = "SCARED GHOST ATTACK"
             else:
                 mode_text = "MANUAL"
 

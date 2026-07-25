@@ -2,8 +2,10 @@
 
 import time
 import random
+from astar_agent import AStarPacmanAgent
 from minimax_agent import MinimaxPacmanAgent
 from minimax_ghost_agent import MinimaxGhostAgent
+from minimax_scared_ghost_agent import MinimaxScaredGhostAttackAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT
 
@@ -17,6 +19,12 @@ def run_demo(max_steps: int = 200):
     # Instantiate the optimized agent
     agent = MinimaxPacmanAgent(depth=2)
     ghost_agent = MinimaxGhostAgent(depth=1)
+    astar_agent = AStarPacmanAgent()
+    scared_attack_agent = MinimaxScaredGhostAttackAgent(
+        safety_distance=5,
+        timer_margin=2,
+    )
+    mode_counts = {"A*": 0, "DEFENSE": 0, "SCARED ATTACK": 0}
 
     initial_lives = game.game_state.pacman.lives
     steps = 0
@@ -26,7 +34,22 @@ def run_demo(max_steps: int = 200):
 
     while steps < max_steps and not game.is_game_over() and not game.is_game_won():
         # AI Decision Phase
-        action = agent.get_action(game.game_state)
+        if agent.is_threat_nearby(game.game_state):
+            mode = "DEFENSE"
+            action = agent.get_action(game.game_state)
+        elif (
+            target_name
+            := scared_attack_agent.select_target(game.game_state)
+        ) is not None:
+            mode = "SCARED ATTACK"
+            action = scared_attack_agent.get_action(
+                game.game_state,
+                target_name,
+            )
+        else:
+            mode = "A*"
+            action = astar_agent.get_action(game.game_state)
+        mode_counts[mode] += 1
 
         # Execution Phase
         if action != (0, 0):
@@ -64,6 +87,7 @@ def run_demo(max_steps: int = 200):
     print(f"Target Depth limit    : {agent.depth}")
     print(f"Threat Pruning Radius : {agent.active_threat_radius}")
     print(f"Ghost Attack Depth    : {ghost_agent.depth}")
+    print(f"Pac-Man Modes         : {mode_counts}")
     print("-" * 60)
     print(f"Survival Frames       : {steps} / {max_steps}")
     print(f"Lives Remaining       : {game.game_state.pacman.lives} / {initial_lives}")
