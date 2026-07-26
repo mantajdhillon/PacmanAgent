@@ -84,19 +84,12 @@ class PacmanGame:
                 self.board.remove_pellet(x, y)
                 self.board.add_power_pellet(x, y)
 
-        pacman = PacmanState(Position(*self.PACMAN_START))
+        pacman = PacmanState(Position(10, 15))
         self.game_state.set_pacman(pacman)
 
-        for name, (x, y) in self.GHOST_HOMES.items():
-            if self.board.is_wall(x, y):
-                raise ValueError(f"Ghost home for {name} is a wall: {(x, y)}")
-            ghost = GhostState(
-                Position(x, y),
-                self.GHOST_COLORS[name],
-                name=name,
-                start_position=(x, y),
-            )
-            self.game_state.add_ghost(ghost)
+        ghost_colors = ["red", "pink", "cyan", "orange"]
+        ghost_names = ["Blinky", "Pinky", "Inky", "Clyde"]
+        ghost_start_positions = [(9, 10), (10, 10), (11, 10), (10, 9)]
 
         self.validate_ghost_roster()
 
