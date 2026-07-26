@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from config import BoundedCache
 
 
 class MinimaxGhostAgent:
@@ -16,8 +17,100 @@ class MinimaxGhostAgent:
     def __init__(self, depth: int = 1):
         self.depth = depth
         self.memo = {}
-        self.distance_cache = {}
+        self.distance_cache = BoundedCache(max_size=8192)
         self.board_signature_cache = {}
+        self.team_targets = {}
+        self.recent_positions = {}
+
+        # Stable names give each ghost a different side of Pac-Man to cover.
+        # These roles do not change when an eaten ghost leaves the active list.
+        self.approach_directions = {
+            "Blinky": (-1, 0),  # approach from Pac-Man's left
+            "Pinky": (0, -1),   # approach from above
+            "Inky": (1, 0),     # approach from Pac-Man's right
+            "Clyde": (0, 1),    # approach from below
+        }
+
+
+    def _history_for(self, ghost_name):
+        """Return the bounded movement history for one ghost identity."""
+        if ghost_name not in self.recent_positions:
+            self.recent_positions[ghost_name] = deque(maxlen=10)
+        return self.recent_positions[ghost_name]
+
+
+    def _directional_slot(self, state, pacman_position, direction, reserved):
+        """Choose a distinct walkable interception slot on one side."""
+        pacman_x, pacman_y = pacman_position
+        direction_x, direction_y = direction
+
+        # Prefer a slot one step from Pac-Man, then look farther down the same
+        # ray when a wall or another assignment blocks that slot.
+        for radius in (1, 2, 3):
+            candidate = (
+                pacman_x + direction_x * radius,
+                pacman_y + direction_y * radius,
+            )
+            if (
+                candidate not in reserved
+                and not state.board.is_wall(*candidate)
+            ):
+                return candidate
+
+        # A wall can block the exact ray. Find the nearest open fallback that
+        # still lies as strongly as possible in this ghost's assigned sector.
+        candidates = []
+        for delta_x in range(-3, 4):
+            for delta_y in range(-3, 4):
+                distance = abs(delta_x) + abs(delta_y)
+                if distance == 0 or distance > 3:
+                    continue
+                candidate = (pacman_x + delta_x, pacman_y + delta_y)
+                if candidate in reserved or state.board.is_wall(*candidate):
+                    continue
+                directional_alignment = (
+                    delta_x * direction_x + delta_y * direction_y
+                )
+                candidates.append(
+                    (directional_alignment, -distance, candidate)
+                )
+
+        if candidates:
+            return max(candidates)[2]
+
+        # This is only reachable in a fully enclosed area. Capturing Pac-Man
+        # remains the correct fallback objective.
+        return pacman_position
+
+
+    def begin_turn(self, state):
+        """
+        Freeze four complementary interception targets for this ghost phase.
+
+        The game calls this once before moving any ghost so later ghosts do
+        not receive a different formation merely because earlier ghosts moved.
+        """
+        self.team_targets = {}
+        if not state.pacman:
+            return
+
+        pacman_position = state.pacman.position.to_tuple()
+        active_names = {
+            ghost.name for ghost in state.ghosts if not ghost.scared
+        }
+        reserved = set()
+
+        for ghost_name, direction in self.approach_directions.items():
+            if ghost_name not in active_names:
+                continue
+            target = self._directional_slot(
+                state,
+                pacman_position,
+                direction,
+                reserved,
+            )
+            self.team_targets[ghost_name] = target
+            reserved.add(target)
 
 
     def _board_signature(self, board):
@@ -181,6 +274,15 @@ class MinimaxGhostAgent:
 
         ghost = state.ghosts[ghost_index]
         pacman_position = state.pacman.position.to_tuple()
+        attack_target = self.team_targets.get(
+            ghost.name,
+            pacman_position,
+        )
+
+        # Once a ghost reaches its interception slot, it closes in for the
+        # capture instead of waiting beside Pac-Man.
+        if ghost.position.to_tuple() == attack_target:
+            attack_target = pacman_position
 
         def attack_score(action):
             destination = (
@@ -190,7 +292,7 @@ class MinimaxGhostAgent:
             return self._maze_distance(
                 state.board,
                 destination,
-                pacman_position,
+                attack_target,
             )
 
 
@@ -209,6 +311,13 @@ class MinimaxGhostAgent:
         ghost = game_state.ghosts[ghost_index]
         if ghost.scared:
             return (0, 0)
+
+        if ghost.name not in self.team_targets:
+            self.begin_turn(game_state)
+
+        self.controlled_ghost_name = ghost.name
+        history = self._history_for(ghost.name)
+        history.append(ghost.position.to_tuple())
 
         self.memo.clear()
         # Distances remain valid across turns because the cache key includes
@@ -240,6 +349,21 @@ class MinimaxGhostAgent:
                 alpha,
                 beta,
             )
+
+            successor_ghost = next(
+                (
+                    candidate
+                    for candidate in successor.ghosts
+                    if candidate.name == ghost.name
+                ),
+                None,
+            )
+            if (
+                successor_ghost is not None
+                and successor_ghost.position.to_tuple() in history
+            ):
+                value -= 2_000.0
+
             if value > best_value:
                 best_value = value
                 best_action = action
@@ -397,6 +521,35 @@ class MinimaxGhostAgent:
         if escape_routes == 0:
             restriction_score += 8_000.0
 
+        # Formation score gives each named ghost a different interception
+        # sector. Capture and life loss still dominate this positional term.
+        formation_score = 0.0
+        for ghost in normal_ghosts:
+            target = self.team_targets.get(ghost.name)
+            if target is None:
+                continue
+            target_distance = self._maze_distance(
+                state.board,
+                ghost.position.to_tuple(),
+                target,
+            )
+            if target_distance < math.inf:
+                formation_score -= target_distance * 600.0
+
+        # Nearby teammates cover nearly the same route. Penalizing clustering
+        # makes them spread across junctions and restrict different exits.
+        clustering_penalty = 0.0
+        for first_index, first_ghost in enumerate(normal_ghosts):
+            first_position = first_ghost.position.to_tuple()
+            for second_ghost in normal_ghosts[first_index + 1:]:
+                second_position = second_ghost.position.to_tuple()
+                teammate_distance = (
+                    abs(first_position[0] - second_position[0])
+                    + abs(first_position[1] - second_position[1])
+                )
+                if teammate_distance <= 1:
+                    clustering_penalty -= 1_500.0
+
         # Fewer remaining Pac-Man lives is always better for the ghost team.
         lives_score = -state.pacman.lives * 100_000.0
 
@@ -406,4 +559,6 @@ class MinimaxGhostAgent:
             + distance_score
             + team_pressure
             + restriction_score
+            + formation_score
+            + clustering_penalty
         )

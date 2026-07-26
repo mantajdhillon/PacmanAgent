@@ -320,6 +320,19 @@ def test_minimax_defense():
         "Preserving a life must be worth more than secondary score gains"
     )
 
+    # An offensive move is unsafe when a normal ghost can capture Pac-Man on
+    # the immediately following ghost turn, even if Pac-Man survives his move.
+    one_ply_state = GameState(open_board)
+    one_ply_state.set_pacman(PacmanState(Position(3, 3)))
+    one_ply_state.add_ghost(
+        GhostState(Position(5, 3), "red", name="NextMoveThreat")
+    )
+    assert not agent.is_action_safe(
+        one_ply_state,
+        RIGHT,
+        minimum_distance=0,
+    ), "Safety gate must reject a square capturable next ghost turn"
+
     # Output Metrics
     print("[OK] Minimax defense test passed:")
     print(f"  - Initial Position: {pacman_start}")
@@ -341,6 +354,7 @@ def test_minimax_ghost_attack():
         Position,
     )
     from minimax_ghost import MinimaxGhostAgent
+    from minimax_agent import MinimaxPacmanAgent
 
     def bordered_board(width=9, height=7):
         board = GameBoard(width, height)
@@ -402,11 +416,77 @@ def test_minimax_ghost_attack():
         "A coordinated second ghost covering another side must improve attack utility"
     )
 
+    # The four stable identities must receive four different approach sectors.
+    formation_state = GameState(bordered_board(width=13, height=11))
+    formation_state.set_pacman(PacmanState(Position(6, 5)))
+    for name, position, color in (
+        ("Blinky", Position(2, 5), "red"),
+        ("Pinky", Position(6, 2), "pink"),
+        ("Inky", Position(10, 5), "cyan"),
+        ("Clyde", Position(6, 8), "orange"),
+    ):
+        formation_state.add_ghost(GhostState(position, color, name=name))
+
+    agent.begin_turn(formation_state)
+    targets = agent.team_targets
+    assert len(set(targets.values())) == 4, (
+        "Each normal ghost must receive a distinct interception target"
+    )
+    assert targets["Blinky"][0] < 6
+    assert targets["Pinky"][1] < 5
+    assert targets["Inky"][0] > 6
+    assert targets["Clyde"][1] > 5
+
+    # A ghost may turn at a junction, but may not immediately reverse and
+    # oscillate unless reversal is its only exit.
+    formation_state.ghosts[0].direction = RIGHT
+    blinky_actions = formation_state.get_legal_actions(1)
+    assert LEFT not in blinky_actions, (
+        "Immediate reversal must be suppressed to prevent two-cell loops"
+    )
+
+    # Two ghosts facing each other in a one-cell corridor must turn around
+    # instead of repeatedly requesting movement into the occupied cell.
+    corridor_board = bordered_board(width=9, height=5)
+    for corridor_x in range(1, 8):
+        corridor_board.add_wall(corridor_x, 1)
+        corridor_board.add_wall(corridor_x, 3)
+
+    head_on_state = GameState(corridor_board)
+    head_on_state.set_pacman(PacmanState(Position(7, 2)))
+    head_on_state.add_ghost(
+        GhostState(
+            Position(3, 2),
+            "red",
+            direction=RIGHT,
+            name="HeadOnLeft",
+        )
+    )
+    head_on_state.add_ghost(
+        GhostState(
+            Position(4, 2),
+            "cyan",
+            direction=LEFT,
+            name="HeadOnRight",
+        )
+    )
+
+    assert head_on_state.get_legal_actions(1) == [LEFT], (
+        "Left ghost must reverse when its forward cell is occupied"
+    )
+    assert head_on_state.get_legal_actions(2) == [RIGHT], (
+        "Right ghost must reverse when its forward cell is occupied"
+    )
+    assert agent.get_action(head_on_state, 0) == LEFT
+    assert agent.get_action(head_on_state, 1) == RIGHT
+
     print("[OK] Normal ghost Minimax attack test passed:")
     print(f"  - Chase action: {chase_action}")
     print(f"  - Capture action: {capture_action}")
     print("  - Scared ghost correctly excluded")
-    print("  - Team pressure improves shared utility")
+    print("  - Four distinct approach sectors assigned by stable identity")
+    print("  - Immediate reversal oscillation suppressed")
+    print("  - Head-on corridor deadlock resolved by safe reversal")
 
 
 def test_minimax_scared_ghost_attack():
@@ -715,6 +795,191 @@ def test_minimax_scared_ghost_defense():
     print("  - Dead-end avoidance and timer survival confirmed")
 
 
+def test_ghost_lifecycle_regressions():
+    """Regression tests for initialization, capture, respawn, and long runs."""
+    print("\nTesting stable four-ghost lifecycle...")
+    from minimax_agent import MinimaxPacmanAgent
+    from minimax_ghost import MinimaxGhostAgent
+    from minimax_attack_agent import MinimaxScaredGhostAttackAgent
+    from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
+    from game_state import Position
+
+    expected_names = {"Blinky", "Pinky", "Inky", "Clyde"}
+    game = PacmanGame(display=False)
+
+    # Initialization must contain four visible, distinct active ghosts.
+    active_names = {ghost.name for ghost in game.game_state.ghosts}
+    active_positions = {
+        ghost.position.to_tuple() for ghost in game.game_state.ghosts
+    }
+    assert active_names == expected_names
+    assert len(game.game_state.ghosts) == 4
+    assert len(active_positions) == 4
+    assert game.validate_ghost_roster()
+
+    # Ghosts may not enter a teammate's occupied cell and visually overlap.
+    blinky_index = next(
+        i
+        for i, ghost in enumerate(game.game_state.ghosts)
+        if ghost.name == "Blinky"
+    )
+    assert not game.move_ghost(blinky_index, RIGHT), (
+        "Blinky must not enter Pinky's occupied starting cell"
+    )
+    assert len({
+        ghost.position.to_tuple() for ghost in game.game_state.ghosts
+    }) == 4
+
+    # Pac-Man entering a scared ghost cell must remove it immediately.
+    blinky = game.game_state.ghosts[blinky_index]
+    blinky.position = Position(9, 15)
+    blinky.scared = True
+    blinky.scared_timer = 50
+    game.board.remove_pellet(9, 15)
+    initial_score = game.game_state.pacman.score
+
+    assert game.move_pacman(LEFT)
+    assert game.last_collision_event == "GHOST_EATEN"
+    assert len(game.game_state.ghosts) == 3
+    assert all(
+        ghost.name != "Blinky" for ghost in game.game_state.ghosts
+    )
+    assert any(
+        ghost.name == "Blinky"
+        for ghost, _ in game.game_state.eaten_ghosts
+    )
+    assert game.game_state.pacman.score == initial_score + 200
+    assert game.validate_ghost_roster()
+
+    # The same identity must respawn once, normally, at a free home cell.
+    for _ in range(game.GHOST_RESPAWN_FRAMES):
+        game.update_respawn_timers()
+
+    respawned = [
+        ghost
+        for ghost in game.game_state.ghosts
+        if ghost.name == "Blinky"
+    ]
+    assert len(respawned) == 1
+    assert not respawned[0].scared
+    assert respawned[0].scared_timer == 0
+    assert len(game.game_state.eaten_ghosts) == 0
+    assert game.validate_ghost_roster()
+
+    # Rechecking a terminal collision must not consume additional lives.
+    terminal_game = PacmanGame(display=False)
+    terminal_game.game_state.pacman.lives = 1
+    terminal_ghost = terminal_game.game_state.ghosts[0]
+    terminal_ghost.position = Position(
+        terminal_game.game_state.pacman.position.x,
+        terminal_game.game_state.pacman.position.y,
+    )
+    terminal_game.check_collisions()
+    terminal_game.check_collisions()
+    assert terminal_game.game_state.pacman.lives == 0
+
+    # Losing a non-final life resets active ghosts, but Pac-Man stays on the
+    # collision square as required by the round-reset policy.
+    respawn_game = PacmanGame(display=False)
+    colliding_ghost = respawn_game.game_state.ghosts[0]
+    respawn_game.game_state.ghosts[1].position = Position(1, 1)
+    respawn_game.game_state.ghosts[1].scared = True
+    respawn_game.game_state.ghosts[1].scared_timer = 37
+    respawn_game.game_state.ghosts[2].position = Position(19, 1)
+    respawn_game.game_state.ghosts[3].position = Position(1, 17)
+    colliding_ghost.position = Position(
+        respawn_game.game_state.pacman.position.x,
+        respawn_game.game_state.pacman.position.y,
+    )
+    collision_position = respawn_game.game_state.pacman.position.to_tuple()
+    ghost_modes_before_death = {
+        ghost.name: (
+            ghost.scared,
+            ghost.scared_timer,
+        )
+        for ghost in respawn_game.game_state.ghosts
+    }
+
+    respawn_game.check_collisions()
+
+    assert respawn_game.game_state.pacman.position.to_tuple() == (
+        collision_position
+    ), "Pac-Man must remain on the collision square after losing a life"
+    assert {
+        ghost.name: ghost.position.to_tuple()
+        for ghost in respawn_game.game_state.ghosts
+    } == respawn_game.GHOST_HOMES, (
+        "Every active ghost must return to its own initial position"
+    )
+    assert all(
+        ghost.direction == (0, 0)
+        for ghost in respawn_game.game_state.ghosts
+    )
+    ghost_modes_after_death = {
+        ghost.name: (
+            ghost.scared,
+            ghost.scared_timer,
+        )
+        for ghost in respawn_game.game_state.ghosts
+    }
+    assert ghost_modes_after_death == ghost_modes_before_death, (
+        "Position reset must not corrupt scared states or timers"
+    )
+
+    # Exercise movement and lifecycle checks for a long deterministic run.
+    for _ in range(1_000):
+        names = [ghost.name for ghost in game.game_state.ghosts]
+        for name in names:
+            index = next(
+                (
+                    i
+                    for i, ghost in enumerate(game.game_state.ghosts)
+                    if ghost.name == name
+                ),
+                None,
+            )
+            if index is None:
+                continue
+
+            occupied = {
+                ghost.position.to_tuple()
+                for i, ghost in enumerate(game.game_state.ghosts)
+                if i != index
+            }
+            pacman_position = game.game_state.pacman.position.to_tuple()
+            ghost = game.game_state.ghosts[index]
+            for action in game.game_state.get_legal_actions(index + 1):
+                destination = (
+                    ghost.position.x + action[0],
+                    ghost.position.y + action[1],
+                )
+                if destination not in occupied and destination != pacman_position:
+                    game.move_ghost(index, action)
+                    break
+
+        game.update_scared_timers()
+        game.update_respawn_timers()
+        assert game.validate_ghost_roster()
+
+    # Every persistent distance cache must remain bounded.
+    cache_owners = [
+        MinimaxPacmanAgent(),
+        MinimaxGhostAgent(),
+        MinimaxScaredGhostAttackAgent(),
+        MinimaxScaredGhostDefenseAgent(),
+    ]
+    for owner in cache_owners:
+        for key in range(10_000):
+            owner.distance_cache[key] = key
+        assert len(owner.distance_cache) <= owner.distance_cache.max_size
+
+    print("[OK] Stable ghost lifecycle test passed:")
+    print("  - Four unique ghosts initialized and remained accounted for")
+    print("  - Immediate scared capture and single respawn confirmed")
+    print("  - 1,000-frame roster soak completed")
+    print("  - All distance caches remained bounded")
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
@@ -736,6 +1001,7 @@ def main():
         test_minimax_ghost_attack()
         test_minimax_scared_ghost_attack()
         test_minimax_scared_ghost_defense()
+        test_ghost_lifecycle_regressions()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")

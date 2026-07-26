@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from config import BoundedCache
 
 class MinimaxPacmanAgent:
     """
@@ -14,8 +15,9 @@ class MinimaxPacmanAgent:
         self.depth = depth
         self.memo = {}
         self.active_threat_radius = threat_distance
-        self.distance_cache = {}
+        self.distance_cache = BoundedCache(max_size=8192)
         self.board_signature_cache = {}
+        self.recent_positions = deque(maxlen=12)
 
 
     def _board_signature(self, board):
@@ -90,6 +92,90 @@ class MinimaxPacmanAgent:
             distance <= self.active_threat_radius
             for distance in self._dangerous_ghost_distances(state)
         )
+
+
+    def is_action_safe(self, state, action, minimum_distance=2) -> bool:
+        """
+        Whether an action survives both Pac-Man's move and the next ghost move.
+
+        This gate is shared by scared-ghost pursuit, point collection, and the
+        defensive fallback, so a scoring objective can never bypass survival.
+        """
+        if action not in state.get_legal_actions(0):
+            return False
+        successor = state.generate_successor(0, action)
+        if (
+            not successor.pacman
+            or successor.pacman.lives < state.pacman.lives
+            or successor.game_over
+        ):
+            return False
+        distances = self._dangerous_ghost_distances(successor)
+        if min(distances, default=math.inf) <= minimum_distance:
+            return False
+
+        pacman_position = successor.pacman.position.to_tuple()
+        for ghost_index, ghost in enumerate(successor.ghosts):
+            if ghost.scared:
+                continue
+            for ghost_action in successor.get_legal_actions(ghost_index + 1):
+                destination = (
+                    ghost.position.x + ghost_action[0],
+                    ghost.position.y + ghost_action[1],
+                )
+                if destination == pacman_position:
+                    return False
+
+        return True
+
+
+    def get_safest_action(self, state):
+        """
+        Return the strongest survival move when an objective move is unsafe.
+
+        Immediate survival dominates distance, escape space, food progress,
+        and loop avoidance in that exact order.
+        """
+        if not state.pacman:
+            return (0, 0)
+
+        best_action = (0, 0)
+        best_score = None
+        for action in state.get_legal_actions(0):
+            successor = state.generate_successor(0, action)
+            survived_move = (
+                successor.pacman is not None
+                and successor.pacman.lives == state.pacman.lives
+                and not successor.game_over
+            )
+            safe_next_round = self.is_action_safe(
+                state,
+                action,
+                minimum_distance=0,
+            )
+            nearest_threat = min(
+                self._dangerous_ghost_distances(successor),
+                default=math.inf,
+            )
+            successor_position = successor.pacman.position.to_tuple()
+            collected_food = (
+                successor.pellets_eaten > state.pellets_eaten
+                or successor.power_pellets_eaten
+                > state.power_pellets_eaten
+            )
+            score = (
+                1 if survived_move else 0,
+                1 if safe_next_round else 0,
+                nearest_threat,
+                self._reachable_area(successor),
+                1 if collected_food else 0,
+                0 if successor_position in self.recent_positions else 1,
+            )
+            if best_score is None or score > best_score:
+                best_score = score
+                best_action = action
+
+        return best_action
 
 
     @staticmethod
@@ -275,10 +361,31 @@ class MinimaxPacmanAgent:
         # Distance entries remain valid because their keys include wall layout.
         self.board_signature_cache.clear()
 
+        current_position = game_state.pacman.position.to_tuple()
+        if (
+            game_state.pacman.score == 0
+            and game_state.pellets_eaten == 0
+            and current_position == (10, 15)
+        ):
+            self.recent_positions.clear()
+        self.recent_positions.append(current_position)
+
         legal_actions = game_state.get_legal_actions(0)
 
         if not legal_actions:
             return (0, 0)
+
+        survival_actions = [
+            action
+            for action in legal_actions
+            if self.is_action_safe(
+                game_state,
+                action,
+                minimum_distance=0,
+            )
+        ]
+        if survival_actions:
+            legal_actions = survival_actions
 
         best_action = None
         max_value = -math.inf
@@ -290,6 +397,25 @@ class MinimaxPacmanAgent:
         for action in legal_actions:
             successor = game_state.generate_successor(0, action)
             value = self._minimax(successor, self.depth, 1, len(successor.ghosts), alpha, beta)
+
+            successor_position = successor.pacman.position.to_tuple()
+            if successor_position in self.recent_positions:
+                value -= 2_500.0
+
+            reverse = (
+                -game_state.pacman.direction[0],
+                -game_state.pacman.direction[1],
+            )
+            if game_state.pacman.direction != (0, 0) and action == reverse:
+                value -= 750.0
+
+            if successor.pellets_eaten > game_state.pellets_eaten:
+                value += 3_500.0
+            if (
+                successor.power_pellets_eaten
+                > game_state.power_pellets_eaten
+            ):
+                value += 8_000.0
 
             if value > max_value:
                 max_value = value
@@ -454,11 +580,10 @@ class MinimaxPacmanAgent:
 
         food_distance = self._nearest_food_distance(state)
         food_score = (
-            100.0 / (food_distance + 1.0)
+            1_000.0 / (food_distance + 1.0)
             if food_distance < math.inf
             else 0.0
         )
-
         return float(
             lives_score
             - danger_penalty

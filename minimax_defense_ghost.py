@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from config import BoundedCache
 
 
 class MinimaxScaredGhostDefenseAgent:
@@ -14,8 +15,15 @@ class MinimaxScaredGhostDefenseAgent:
     def __init__(self, activation_distance: int = 5, escape_horizon: int = 4):
         self.activation_distance = activation_distance
         self.escape_horizon = escape_horizon
-        self.distance_cache = {}
+        self.distance_cache = BoundedCache(max_size=8192)
         self.board_signature_cache = {}
+        self.recent_positions = {}
+
+    def _history_for(self, ghost_name):
+        """Return a short per-ghost history used to break local oscillations."""
+        if ghost_name not in self.recent_positions:
+            self.recent_positions[ghost_name] = deque(maxlen=10)
+        return self.recent_positions[ghost_name]
 
     def _board_signature(self, board):
         """Return a wall-only signature shared by cloned search boards."""
@@ -189,7 +197,8 @@ class MinimaxScaredGhostDefenseAgent:
         )
 
         best_action = legal_actions[0]
-        best_score = (-math.inf, -math.inf, -math.inf)
+        history = self._history_for(ghost_name)
+        best_score = (-math.inf, -math.inf, -math.inf, -math.inf)
 
         for action in legal_actions:
             successor = state.generate_successor(ghost_index + 1, action)
@@ -198,8 +207,10 @@ class MinimaxScaredGhostDefenseAgent:
                 continue
 
             successor_index = successor.ghosts.index(successor_ghost)
+            successor_position = successor_ghost.position.to_tuple()
             score = (
                 self._pacman_distance(successor, successor_ghost),
+                0 if successor_position in history else 1,
                 self._local_escape_space(successor, successor_ghost),
                 self._escape_action_count(successor, successor_index),
             )
@@ -223,6 +234,8 @@ class MinimaxScaredGhostDefenseAgent:
             return (0, 0)
 
         ghost_name = ghost.name
+        history = self._history_for(ghost_name)
+        history.append(ghost.position.to_tuple())
         if not self.is_minimax_active(game_state, ghost_index):
             return self._greedy_flee_action(
                 game_state,
@@ -273,6 +286,11 @@ class MinimaxScaredGhostDefenseAgent:
                     alpha,
                     beta,
                 )
+
+            if successor_ghost is not None:
+                successor_position = successor_ghost.position.to_tuple()
+                if successor_position in history:
+                    value -= 2_000.0
 
             if value > best_value:
                 best_value = value

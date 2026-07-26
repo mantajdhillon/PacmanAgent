@@ -16,6 +16,21 @@ from feature_extractor import FeatureExtractor
 class PacmanGame:
     """Main Pac-Man game engine."""
 
+    GHOST_HOMES = {
+        "Blinky": (9, 10),
+        "Pinky": (10, 10),
+        "Inky": (11, 10),
+        "Clyde": (10, 9),
+    }
+    GHOST_COLORS = {
+        "Blinky": "red",
+        "Pinky": "pink",
+        "Inky": "cyan",
+        "Clyde": "orange",
+    }
+    GHOST_RESPAWN_FRAMES = 100
+    PACMAN_START = (10, 15)
+
     def __init__(self, display: bool = True):
         """
         Initialize the game.
@@ -39,6 +54,8 @@ class PacmanGame:
         self.board = GameBoard(BOARD_WIDTH, BOARD_HEIGHT)
         self.game_state = GameState(self.board)
         self.feature_extractor = FeatureExtractor(BOARD_WIDTH, BOARD_HEIGHT)
+        self.last_collision_event = "NONE"
+        self.skip_ghost_phase = False
 
         self._setup_maze()
 
@@ -67,17 +84,21 @@ class PacmanGame:
                 self.board.remove_pellet(x, y)
                 self.board.add_power_pellet(x, y)
 
-        pacman = PacmanState(Position(10, 15))
+        pacman = PacmanState(Position(*self.PACMAN_START))
         self.game_state.set_pacman(pacman)
 
-        ghost_colors = ["red", "pink", "cyan", "orange"]
-        ghost_names = ["Blinky", "Pinky", "Inky", "Clyde"]
-        ghost_start_positions = [(9, 10), (10, 10), (11, 10), (10, 9)]
+        for name, (x, y) in self.GHOST_HOMES.items():
+            if self.board.is_wall(x, y):
+                raise ValueError(f"Ghost home for {name} is a wall: {(x, y)}")
+            ghost = GhostState(
+                Position(x, y),
+                self.GHOST_COLORS[name],
+                name=name,
+                start_position=(x, y),
+            )
+            self.game_state.add_ghost(ghost)
 
-        for i, (color, name, (x, y)) in enumerate(zip(ghost_colors, ghost_names, ghost_start_positions)):
-            if not self.board.is_wall(x, y):
-                ghost = GhostState(Position(x, y), color, name=name)
-                self.game_state.add_ghost(ghost)
+        self.validate_ghost_roster()
 
     def _add_interior_walls(self):
         wall_patterns = [
@@ -122,6 +143,8 @@ class PacmanGame:
         """Reset the game to initial state."""
         self.board = GameBoard(BOARD_WIDTH, BOARD_HEIGHT)
         self.game_state = GameState(self.board)
+        self.last_collision_event = "NONE"
+        self.skip_ghost_phase = False
         self._setup_maze()
         self.running = True
 
@@ -135,6 +158,9 @@ class PacmanGame:
         """
         if not self.game_state.pacman:
             return False
+
+        self.last_collision_event = "NONE"
+        self.skip_ghost_phase = False
 
         pacman = self.game_state.pacman
         new_x = pacman.position.x + direction[0]
@@ -162,6 +188,9 @@ class PacmanGame:
         pacman.position.y = new_y
         pacman.direction = direction
 
+        # Resolve capture/death before any ghost receives another move.
+        self._resolve_collisions()
+
         return True
 
     def move_ghost(self, ghost_index: int, direction: Tuple[int, int]) -> bool:
@@ -173,7 +202,7 @@ class PacmanGame:
         Returns:
             True if move was successful, False otherwise
         """
-        if ghost_index >= len(self.game_state.ghosts):
+        if ghost_index < 0 or ghost_index >= len(self.game_state.ghosts):
             return False
 
         ghost = self.game_state.ghosts[ghost_index]
@@ -183,9 +212,18 @@ class PacmanGame:
         if self.board.is_wall(new_x, new_y):
             return False
 
+        # Active ghosts may not overlap; otherwise four ghosts can render as
+        # only two or three and list-index control becomes ambiguous.
+        for i, other in enumerate(self.game_state.ghosts):
+            if i != ghost_index and other.position.to_tuple() == (new_x, new_y):
+                return False
+
         ghost.position.x = new_x
         ghost.position.y = new_y
         ghost.direction = direction
+
+        # Resolve a ghost entering Pac-Man's cell immediately.
+        self._resolve_collisions()
 
         return True
 
@@ -195,39 +233,79 @@ class PacmanGame:
         Returns:
             True if Pac-Man collided with a ghost (game over), False otherwise
         """
+        event = self._resolve_collisions()
+        return event == "GAME_OVER"
+
+    def _resolve_collisions(self) -> str:
+        """
+        Resolve every collision at the current positions.
+
+        Normal-ghost contact takes priority and ends the movement phase.
+        Otherwise every scared ghost sharing Pac-Man's cell is eaten
+        immediately and moved to the respawning collection.
+        """
         if not self.game_state.pacman:
-            return False
+            return "NONE"
+        if self.game_state.game_over:
+            self.last_collision_event = "GAME_OVER"
+            return self.last_collision_event
 
         pacman_pos = self.game_state.pacman.position.to_tuple()
+        colliding = [
+            ghost
+            for ghost in self.game_state.ghosts
+            if ghost.position.to_tuple() == pacman_pos
+        ]
+        if not colliding:
+            return "NONE"
 
-        for ghost in list(self.game_state.ghosts):  # Use list() to avoid modifying while iterating
-            if ghost.position.to_tuple() == pacman_pos:
-                if ghost.scared:
-                    # Store ghost for respawn (respawn after 100 frames = 10 seconds at 10 FPS)
-                    ghost.start_position = (BOARD_WIDTH // 2, BOARD_HEIGHT // 2)
-                    self.game_state.eaten_ghosts.append((ghost, 100))
-                    self.game_state.ghosts.remove(ghost)
-                    self.game_state.pacman.score += 200
-                else:
-                    self.game_state.pacman.lives -= 1
-                    if self.game_state.pacman.lives <= 0:
-                        self.game_state.game_over = True
-                        return True
-                    else:
-                        self._reset_positions()
-                return False
+        normal_ghosts = [ghost for ghost in colliding if not ghost.scared]
+        if normal_ghosts:
+            self.game_state.pacman.lives -= 1
+            self.skip_ghost_phase = True
+            if self.game_state.pacman.lives <= 0:
+                self.game_state.game_over = True
+                self.last_collision_event = "GAME_OVER"
+            else:
+                self._reset_active_ghost_positions()
+                self.last_collision_event = "PACMAN_DIED"
+            self.validate_ghost_roster()
+            return self.last_collision_event
 
-        return False
+        for ghost in colliding:
+            self._queue_ghost_for_respawn(ghost)
+            self.game_state.pacman.score += 200
 
-    def _reset_positions(self):
-        """Reset Pac-Man and ghost positions after collision."""
-        self.game_state.pacman.position = Position(10, 15)
-        ghost_start_positions = [(9, 10),(10, 10),(11, 10),(10, 9)]
+        self.last_collision_event = "GHOST_EATEN"
+        self.validate_ghost_roster()
+        return self.last_collision_event
 
-        for i, ghost in enumerate(self.game_state.ghosts):
-            if i < len(ghost_start_positions):
-                x, y = ghost_start_positions[i]
-                ghost.position = Position(x, y)
+    def _queue_ghost_for_respawn(self, ghost: GhostState):
+        """Remove one scared ghost exactly once and start its respawn timer."""
+        if any(
+            queued.name == ghost.name
+            for queued, _ in self.game_state.eaten_ghosts
+        ):
+            return
+        if ghost in self.game_state.ghosts:
+            self.game_state.ghosts.remove(ghost)
+        ghost.respawn_timer = self.GHOST_RESPAWN_FRAMES
+        self.game_state.eaten_ghosts.append(
+            (ghost, self.GHOST_RESPAWN_FRAMES)
+        )
+
+    def _reset_active_ghost_positions(self):
+        """
+        Return active ghosts home after Pac-Man loses a life.
+
+        Pac-Man intentionally remains on the collision square. Ghost identity,
+        scared state, timers, score, pellets, and the eaten-ghost respawn queue
+        are preserved; only active ghost positions and directions are reset.
+        """
+        for ghost in self.game_state.ghosts:
+            home_x, home_y = self.GHOST_HOMES[ghost.name]
+            ghost.position = Position(home_x, home_y)
+            ghost.direction = (0, 0)
 
     def check_win_condition(self) -> bool:
         """
@@ -258,16 +336,72 @@ class PacmanGame:
         for ghost, timer in self.game_state.eaten_ghosts:
             timer -= 1
             if timer <= 0:
-                # Respawn ghost at center in unscared state
-                ghost.position = Position(BOARD_WIDTH // 2, BOARD_HEIGHT // 2)
+                respawn_position = self._find_free_respawn_position(ghost)
+                if respawn_position is None:
+                    # Retry next frame rather than overlapping/disappearing.
+                    still_eaten.append((ghost, 1))
+                    continue
+                ghost.position = Position(*respawn_position)
                 ghost.scared = False
                 ghost.scared_timer = 0
-                self.game_state.ghosts.append(ghost)
+                ghost.respawn_timer = 0
+                if not any(
+                    active.name == ghost.name
+                    for active in self.game_state.ghosts
+                ):
+                    self.game_state.add_ghost(ghost)
             else:
+                ghost.respawn_timer = timer
                 still_eaten.append((ghost, timer))
         
         # Update the eaten ghosts list
         self.game_state.eaten_ghosts = still_eaten
+        self.validate_ghost_roster()
+
+    def _find_free_respawn_position(self, ghost: GhostState):
+        """Find an unoccupied home-area cell for a returning ghost."""
+        occupied = {
+            active.position.to_tuple()
+            for active in self.game_state.ghosts
+        }
+        if self.game_state.pacman:
+            occupied.add(self.game_state.pacman.position.to_tuple())
+
+        preferred = self.GHOST_HOMES[ghost.name]
+        candidates = [preferred] + [
+            home
+            for name, home in self.GHOST_HOMES.items()
+            if name != ghost.name
+        ]
+        for position in candidates:
+            if position not in occupied and not self.board.is_wall(*position):
+                return position
+        return None
+
+    def validate_ghost_roster(self):
+        """Assert four unique identities across active and respawning ghosts."""
+        active_names = [ghost.name for ghost in self.game_state.ghosts]
+        respawning_names = [
+            ghost.name for ghost, _ in self.game_state.eaten_ghosts
+        ]
+        all_names = active_names + respawning_names
+        expected = set(self.GHOST_HOMES)
+
+        if set(all_names) != expected or len(all_names) != len(expected):
+            raise RuntimeError(
+                "Ghost roster corrupted: "
+                f"active={active_names}, respawning={respawning_names}"
+            )
+        if len(active_names) != len(set(active_names)):
+            raise RuntimeError(f"Duplicate active ghosts: {active_names}")
+
+        positions = [
+            ghost.position.to_tuple()
+            for ghost in self.game_state.ghosts
+        ]
+        if len(positions) != len(set(positions)):
+            raise RuntimeError(f"Overlapping active ghosts: {positions}")
+        return True
 
     def render(self):
         """Render the game board and entities."""

@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from config import BoundedCache
 
 
 class MinimaxScaredGhostAttackAgent:
@@ -24,8 +25,10 @@ class MinimaxScaredGhostAttackAgent:
     def __init__(self, safety_distance: int = 5, timer_margin: int = 2):
         self.safety_distance = safety_distance
         self.timer_margin = timer_margin
-        self.distance_cache = {}
+        self.distance_cache = BoundedCache(max_size=8192)
         self.board_signature_cache = {}
+        self.recent_positions = deque(maxlen=12)
+        self.locked_target_name = None
 
 
     def _board_signature(self, board):
@@ -117,13 +120,37 @@ class MinimaxScaredGhostAttackAgent:
         strictly below its remaining scared timer.
         """
         if not state.pacman:
+            self.locked_target_name = None
             return None
 
         if self._nearest_normal_ghost_distance(state) <= self.safety_distance:
+            self.locked_target_name = None
             return None
 
         pacman_position = state.pacman.position.to_tuple()
         candidates = []
+
+        locked_target = self._find_target(
+            state,
+            self.locked_target_name,
+        )
+        if (
+            locked_target
+            and locked_target.scared
+            and locked_target.scared_timer > 0
+        ):
+            locked_distance = self._maze_distance(
+                state.board,
+                pacman_position,
+                locked_target.position.to_tuple(),
+                pacman_path=True,
+            )
+            if (
+                locked_distance < math.inf
+                and locked_target.scared_timer - locked_distance
+                > self.timer_margin
+            ):
+                return self.locked_target_name
 
         for ghost in state.ghosts:
             if not ghost.scared or ghost.scared_timer <= 0:
@@ -146,9 +173,11 @@ class MinimaxScaredGhostAttackAgent:
             candidates.append((slack, -distance, ghost.name))
 
         if not candidates:
+            self.locked_target_name = None
             return None
 
-        return max(candidates)[2]
+        self.locked_target_name = max(candidates)[2]
+        return self.locked_target_name
 
 
     def has_viable_target(self, state) -> bool:
@@ -172,7 +201,7 @@ class MinimaxScaredGhostAttackAgent:
             ):
                 safe_actions.append(action)
 
-        return safe_actions if safe_actions else legal_actions
+        return safe_actions
 
 
     def _order_pacman_actions(self, state, legal_actions, target_name):
@@ -225,13 +254,20 @@ class MinimaxScaredGhostAttackAgent:
 
         target = self._find_target(game_state, target_name)
         if not target or not target.scared:
+            self.locked_target_name = None
             return (0, 0)
+
+        current_position = game_state.pacman.position.to_tuple()
+        self.recent_positions.append(current_position)
 
         legal_actions = game_state.get_legal_actions(0)
         if not legal_actions:
             return (0, 0)
 
         legal_actions = self._safe_chase_actions(game_state, legal_actions)
+        if not legal_actions:
+            self.locked_target_name = None
+            return (0, 0)
         legal_actions = self._order_pacman_actions(
             game_state,
             legal_actions,
@@ -255,6 +291,17 @@ class MinimaxScaredGhostAttackAgent:
                     alpha,
                     beta,
                 )
+
+            successor_position = successor.pacman.position.to_tuple()
+            if successor_position in self.recent_positions:
+                value -= 2_000.0
+
+            reverse = (
+                -game_state.pacman.direction[0],
+                -game_state.pacman.direction[1],
+            )
+            if game_state.pacman.direction != (0, 0) and action == reverse:
+                value -= 750.0
 
             if value > best_value:
                 best_value = value
