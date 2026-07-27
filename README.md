@@ -77,7 +77,7 @@ Play the game manually with Pygame UI.
 
 #### `run_tests.py` - Automated Test Suite (10 Tests)
 Validates that all infrastructure works correctly.
-- **What it does**: Runs 10 automated tests covering:
+- **What it does**: Runs 19 automated tests covering:
   - Game initialization
   - Feature extraction (all 5 types)
   - State arrays and vectors
@@ -85,6 +85,9 @@ Validates that all infrastructure works correctly.
   - Pellet collection
   - Collision detection
   - Win condition
+  - Four-ghost lifecycle and long-run cache behavior
+  - Approximate Q-Learning weight initialization and TD updates
+  - Epsilon-greedy action selection and terminal state handling
 - **How to run**: `python run_tests.py`
 - **Output**: Test results showing "[PASS] ALL TESTS PASSED!" or failures
 
@@ -231,8 +234,34 @@ Epic 3 introduces a defensive adversarial agent (`minimax_agent.py`) designed to
 python run_tests.py
 python run_minimax_demo.py
 ```
+
 Expected results:
 * All automated tests pass, specifically `test_minimax_defense` confirming Pac-Man successfully avoids a manufactured mortal threat.
 * The Minimax headless demo successfully evades ghosts for 200 frames while outputting a high FPS simulation speed, proving the pruning optimizations prevent computational freezing.
 * When running `python play_game.py` with the Hybrid Autoplay toggle ('A'), the UI smoothly transitions between A* Offense (Green) and Minimax Defense (Red) without interpreter lag.
 ---
+
+## Epic 4: Approximate Q-Learning
+
+Epic 4 introduces a Reinforcement Learning agent in the form of Q-Learning that learns to play Pac-Man through trial and error. Instead of relying on hardcoded decision trees or deep search algorithms, this agent evaluates the board using weighted features and dynamically updates its strategy over time using Temporal Difference (TD) learning.
+
+### Features
+
+- **Approximate Q-Learning:** Uses a weight vector instead of a massive, memory-heavy Q-table to instantly generalize learning across the entire 21x21 board.
+- **Feature-Based Evaluation:** Distills complex board states into 6 core metrics (Bias, Eats Food, Nearest Pellet, Imminent Danger, Scared Ghost Distance, and Continuous Ghost Distance).
+- **Reward Shaping & Normalization:** Employs scaled rewards and penalties to prevent mathematical weight oscillation and encourage aggressive, decisive pathfinding.
+- **Epsilon-Greedy Exploration:** Gradually decays random exploration during training to smoothly transition the agent into pure, optimized exploitation.
+
+### Q-Learning Files
+
+| File | Responsibility |
+| --- | --- |
+| `approximate_q_agent.py` | Core Q-learning math, TD weight updates, and epsilon-greedy action selection. |
+| `train_q_agent.py` | The training environment, reward shaping logic, and headless performance testing. |
+
+### Training and Testing
+
+To train the Q-Learning agent and view its final performance summary, run:
+
+```bash
+python train_q_agent.py
