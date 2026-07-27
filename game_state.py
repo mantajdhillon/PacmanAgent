@@ -123,6 +123,8 @@ class GameState:
 
     def add_ghost(self, ghost: GhostState):
         """Add a ghost to the game."""
+        if any(existing.name == ghost.name for existing in self.ghosts):
+            raise ValueError(f"Duplicate active ghost identity: {ghost.name}")
         self.ghosts.append(ghost)
 
     def update_pacman_position(self, new_x: int, new_y: int):
@@ -225,8 +227,26 @@ class GameState:
         new_state.game_over = self.game_over
         new_state.game_won = self.game_won
 
-        # We shallow copy the eaten ghosts list
-        new_state.eaten_ghosts = list(self.eaten_ghosts)
+        # Deep-copy respawning ghosts so search states cannot mutate live state.
+        new_state.eaten_ghosts = [
+            (
+                GhostState(
+                    position=Position(
+                        ghost.position.x,
+                        ghost.position.y,
+                    ),
+                    color=ghost.color,
+                    direction=ghost.direction,
+                    scared=ghost.scared,
+                    scared_timer=ghost.scared_timer,
+                    respawn_timer=ghost.respawn_timer,
+                    name=ghost.name,
+                    start_position=ghost.start_position,
+                ),
+                timer,
+            )
+            for ghost, timer in self.eaten_ghosts
+        ]
 
         # Clone Pac-Man
         if self.pacman:
@@ -284,6 +304,41 @@ class GameState:
 
             if not self.board.is_wall(new_x, new_y):
                 legal_actions.append((dx, dy))
+
+        if agent_index > 0:
+            ghost_index = agent_index - 1
+            ghost = self.ghosts[ghost_index]
+
+            # A teammate's cell is a blocked destination during planning, not
+            # merely during execution. Otherwise Minimax repeatedly selects a
+            # move that PacmanGame.move_ghost() rejects every frame.
+            occupied_positions = {
+                other.position.to_tuple()
+                for index, other in enumerate(self.ghosts)
+                if index != ghost_index
+            }
+            legal_actions = [
+                action
+                for action in legal_actions
+                if (
+                    ghost.position.x + action[0],
+                    ghost.position.y + action[1],
+                )
+                not in occupied_positions
+            ]
+
+            # Match the classic no-immediate-reversal rule when another route
+            # exists. If a teammate blocks the only forward corridor, reversal
+            # remains legal so the ghost turns around instead of freezing.
+            if len(legal_actions) > 1 and ghost.direction != (0, 0):
+                reverse = (-ghost.direction[0], -ghost.direction[1])
+                non_reverse = [
+                    action
+                    for action in legal_actions
+                    if action != reverse
+                ]
+                if non_reverse:
+                    legal_actions = non_reverse
 
         return legal_actions
 

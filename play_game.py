@@ -3,6 +3,9 @@
 import pygame
 from astar_agent import AStarPacmanAgent
 from minimax_agent import MinimaxPacmanAgent
+from minimax_ghost import MinimaxGhostAgent
+from minimax_attack_agent import MinimaxScaredGhostAttackAgent
+from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
 from game_engine import PacmanGame
 from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
@@ -21,6 +24,15 @@ class GamePlayer:
         self.current_ai_mode = "A* AUTOPLAY"
         self.astar_agent = AStarPacmanAgent()
         self.minimax_agent = MinimaxPacmanAgent(depth=2)
+        self.ghost_minimax_agent = MinimaxGhostAgent(depth=1)
+        self.scared_ghost_attack_agent = MinimaxScaredGhostAttackAgent(
+            safety_distance=5,
+            timer_margin=2,
+        )
+        self.scared_ghost_defense_agent = MinimaxScaredGhostDefenseAgent(
+            activation_distance=5,
+            escape_horizon=4,
+        )
         self.move_count = 0
         self.frame_count = 0
 
@@ -47,29 +59,58 @@ class GamePlayer:
         if not self.paused:
             if self.autoplay:
                 game_state = self.game.game_state
-                pacman_pos = game_state.pacman.position
 
-                # Find the nearest dangerous ghost
-                nearest_threat_dist = float('inf')
+                # Priority: safely edible ghosts, then safe point progress,
+                # then defensive survival. Every offensive candidate passes
+                # the same one-ghost-turn safety gate before execution.
+                action = None
+                target_name = self.scared_ghost_attack_agent.select_target(
+                    game_state
+                )
+                if target_name is not None:
+                    scared_action = self.scared_ghost_attack_agent.get_action(
+                        game_state,
+                        target_name,
+                    )
+                    if self.minimax_agent.is_action_safe(
+                        game_state,
+                        scared_action,
+                        minimum_distance=2,
+                    ):
+                        self.current_ai_mode = "SCARED ATTACK"
+                        action = scared_action
 
-                for ghost in game_state.ghosts:
-                    if not ghost.scared:
-                        dist = abs(pacman_pos.x - ghost.position.x) + abs(pacman_pos.y - ghost.position.y)
-                        if dist < nearest_threat_dist:
-                            nearest_threat_dist = dist
-
-                # Orchestrator Logic
-                THREAT_RADIUS = 5  # Grid squares
-
-                if nearest_threat_dist <= THREAT_RADIUS:
-                    # DANGER: Engage Defensive Minimax
-                    self.current_ai_mode = "MINIMAX"
-                    pygame.event.pump()
-                    action = self.minimax_agent.get_action(game_state)
-                else:
-                    # SAFE: Engage Offensive A*
-                    self.current_ai_mode = "A*"
-                    action = self.astar_agent.get_action(game_state)
+                if action is None:
+                    point_action = self.astar_agent.get_action(game_state)
+                    threat_nearby = self.minimax_agent.is_threat_nearby(
+                        game_state
+                    )
+                    if (
+                        not threat_nearby
+                        and self.minimax_agent.is_action_safe(
+                            game_state,
+                            point_action,
+                            minimum_distance=2,
+                        )
+                    ):
+                        self.current_ai_mode = "A*"
+                        action = point_action
+                    else:
+                        self.current_ai_mode = "MINIMAX"
+                        pygame.event.pump()
+                        defense_action = self.minimax_agent.get_action(
+                            game_state
+                        )
+                        if self.minimax_agent.is_action_safe(
+                            game_state,
+                            defense_action,
+                            minimum_distance=0,
+                        ):
+                            action = defense_action
+                        else:
+                            action = self.minimax_agent.get_safest_action(
+                                game_state
+                            )
 
                 # Execute the routed action
                 if action != (0, 0) and self.game.move_pacman(action):
@@ -93,14 +134,46 @@ class GamePlayer:
                     self.move_count += 1
 
     def update_ghosts(self):
-        """Simple ghost AI - random movement."""
-        import random
-        directions = [UP, DOWN, LEFT, RIGHT]
+        """Use role-appropriate Minimax or flee behavior for every ghost."""
 
-        for i in range(len(self.game.game_state.ghosts)):
-            # Try random direction, keep current direction if it hits a wall
-            direction = random.choice(directions)
-            self.game.move_ghost(i, direction)
+        # Names remain stable when an eaten ghost is removed and list indices
+        # shift. Each active ghost receives at most one move this frame.
+        ghost_names = [
+            ghost.name for ghost in self.game.game_state.ghosts
+        ]
+        self.ghost_minimax_agent.begin_turn(self.game.game_state)
+        for ghost_name in ghost_names:
+            if self.game.skip_ghost_phase:
+                break
+
+            ghost_index = next(
+                (
+                    index
+                    for index, ghost in enumerate(
+                        self.game.game_state.ghosts
+                    )
+                    if ghost.name == ghost_name
+                ),
+                None,
+            )
+            if ghost_index is None:
+                continue
+
+            ghost = self.game.game_state.ghosts[ghost_index]
+            if ghost.scared:
+                action = self.scared_ghost_defense_agent.get_action(
+                    self.game.game_state,
+                    ghost_index,
+                )
+            else:
+                # Requirement 2: every normal ghost attacks at every distance.
+                action = self.ghost_minimax_agent.get_action(
+                    self.game.game_state,
+                    ghost_index,
+                )
+
+            if action != (0, 0):
+                self.game.move_ghost(ghost_index, action)
 
     def update(self):
         """Update game state."""
@@ -110,9 +183,10 @@ class GamePlayer:
         
         if not self.paused:
             # Move ghosts
-            self.update_ghosts()
+            if not self.game.skip_ghost_phase:
+                self.update_ghosts()
 
-            # Check collisions
+            # Safety audit; normal collisions already resolve after each move.
             self.game.check_collisions()
 
             # Update scared timers
@@ -124,6 +198,9 @@ class GamePlayer:
             # Check win condition (only if not game over)
             if not self.game.is_game_over():
                 self.game.check_win_condition()
+
+            self.game.validate_ghost_roster()
+            self.game.skip_ghost_phase = False
 
     def render(self):
         """Render game and UI."""
@@ -139,6 +216,8 @@ class GamePlayer:
                 mode_text = "A* AUTOPLAY"
             elif self.current_ai_mode == "MINIMAX":
                 mode_text = "MINIMAX AUTOPLAY"
+            elif self.current_ai_mode == "SCARED ATTACK":
+                mode_text = "SCARED GHOST ATTACK"
             else:
                 mode_text = "MANUAL"
 
