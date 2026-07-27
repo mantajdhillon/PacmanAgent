@@ -5,6 +5,7 @@ import numpy as np
 from astar_agent import AStarPacmanAgent
 from game_engine import PacmanGame
 from feature_extractor import FeatureExtractor
+from approximate_q_agent import ApproximateQAgent
 from config import UP, DOWN, LEFT, RIGHT
 
 
@@ -258,6 +259,107 @@ def test_minimax_defense():
     print(f"  - Compute Time: {compute_time:.4f}s")
     print(f"  - Post-Evasion Utility: {eval_score:.2f}")
 
+def test_q_weight_initialization():
+    """Test that weights are lazy-loaded and initialized to zeros correctly."""
+    print("\nTesting Q-weight initialization...")
+    game = PacmanGame(display=False)
+    agent = ApproximateQAgent()
+
+    # Weights should be None before any evaluation
+    assert agent.weights is None, "Weights should initially be None"
+
+    state = game.get_game_state()
+    legal_actions = state.get_legal_actions(0)
+    action = legal_actions[0]
+
+    # Trigger weight initialization
+    q_value = agent.get_q_value(state, action)
+
+    assert agent.weights is not None, "Weights should be initialized after calling get_q_value"
+    assert isinstance(agent.weights, np.ndarray), "Weights must be a NumPy array"
+    assert np.all(agent.weights == 0.0), "Initial weights must be all zeros"
+    assert q_value == 0.0, "Initial Q-value with zeroed weights must be 0.0"
+    
+    print("[OK] Q-weights initialized successfully")
+
+def test_epsilon_greedy_selection():
+    """Test that the agent respects the epsilon exploration parameter."""
+    print("\nTesting epsilon-greedy action selection...")
+    game = PacmanGame(display=False)
+    state = game.get_game_state()
+    
+    # Test 1: Pure Exploration (Epsilon = 1.0)
+    random_agent = ApproximateQAgent(epsilon=1.0)
+    actions_taken = set()
+    for _ in range(50):
+        actions_taken.add(random_agent.get_action(state))
+    
+    assert len(actions_taken) > 1, "Agent with epsilon=1.0 should return varying random actions"
+    
+    # Test 2: Pure Exploitation (Epsilon = 0.0)
+    greedy_agent = ApproximateQAgent(epsilon=0.0)
+    
+    # Manually rig the weights so UP is mathematically the best action
+    legal_actions = state.get_legal_actions(0)
+    greedy_agent.get_q_value(state, legal_actions[0]) # Force initialization
+    
+    # Fake the weights to simulate a highly trained state
+    greedy_agent.weights = np.ones_like(greedy_agent.weights)
+    
+    first_greedy_action = greedy_agent.get_action(state)
+    for _ in range(10):
+        assert greedy_agent.get_action(state) == first_greedy_action, "Agent with epsilon=0.0 must be deterministic"
+
+    print("[OK] Epsilon-greedy selection behaves as expected")
+
+def test_weight_update_logic():
+    """Test that Temporal Difference (TD) error correctly updates weights."""
+    print("\nTesting weight update (TD Error) logic...")
+    game = PacmanGame(display=False)
+    state = game.get_game_state()
+    
+    # Create a cloned successor state to simulate a move
+    legal_actions = state.get_legal_actions(0)
+    action = legal_actions[0]
+    next_state = state.generate_successor(0, action)
+    
+    # Initialize Agent with a high learning rate for clear observation
+    agent = ApproximateQAgent(learning_rate=0.5, discount_factor=0.9, epsilon=0.0)
+    
+    # Force weight array initialization
+    agent.get_q_value(state, action)
+    initial_weights = agent.weights.copy()
+    
+    # Apply a massive artificial reward
+    massive_reward = 100.0
+    agent.update(state, action, next_state, massive_reward)
+    
+    updated_weights = agent.weights
+    
+    # Assert weights have physically changed
+    assert not np.array_equal(initial_weights, updated_weights), "Weights failed to update after receiving a reward"
+    assert np.any(updated_weights > 0.0), "A massive positive reward should result in positive weight shifts"
+    
+    print("[OK] Weight update applied successfully")
+
+def test_terminal_state_value():
+    """Test that game-over states return a value of 0.0."""
+    print("\nTesting terminal state valuation...")
+    game = PacmanGame(display=False)
+    state = game.get_game_state()
+    agent = ApproximateQAgent()
+    
+    # Manually trigger a game over
+    state.game_over = True
+    
+    # The value of a terminal state should strictly be 0.0
+    val = agent.get_value(state)
+    assert val == 0.0, f"Terminal state value should be 0.0, got {val}"
+    
+    # Legal actions should be empty
+    assert len(state.get_legal_actions(0)) == 0, "Terminal states should have no legal actions"
+    
+    print("[OK] Terminal state handled correctly")
 
 def main():
     """Run all tests."""
@@ -277,6 +379,10 @@ def main():
         test_all_features()
         test_astar_pathfinding()
         test_minimax_defense()
+        test_q_weight_initialization()
+        test_epsilon_greedy_selection()
+        test_weight_update_logic()
+        test_terminal_state_value()
 
         print("\n" + "=" * 60)
         print("[PASS] ALL TESTS PASSED!")
