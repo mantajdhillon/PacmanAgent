@@ -19,8 +19,12 @@ def train_agent(episodes: int) -> ApproximateQAgent:
         game.reset()
 
         prev_action = None
+
+        # Map actions to their exact opposites to easily detect when the agent is backtracking
         reverse_actions = {(0, -1): (0, 1), (0, 1): (0, -1), (-1, 0): (1, 0), (1, 0): (-1, 0)}
         steps = 0
+
+        # Hard cap to prevent infinite loops if the agent learns "cowardly" stalling behavior
         max_steps = 3000
         
         while not game.is_game_over() and not game.is_game_won() and steps < max_steps:
@@ -41,21 +45,27 @@ def train_agent(episodes: int) -> ApproximateQAgent:
             
             next_state = game.get_game_state().clone()
             
-           
+            # Base logic: Reward the agent based on changes to the official game score
             reward = next_state.pacman.score - prev_score
-            
+
+            # Base step penalty to encourage the agent to finish the game quickly
             reward -= 1 
 
+            # Penalize thrashing (vibrating back and forth) to smooth out pathfinding
             if prev_action is not None and action == reverse_actions.get(prev_action):
                 reward -= 5
 
+            # Custom reward shaping for critical events to guide the TD update
             if next_state.pellets_eaten > prev_pellets_eaten:
                 reward += 50
             if next_state.pacman.lives < prev_lives:
                 reward -= 250
             elif game.is_game_won():
                 reward += 500
-            reward = reward / 100.0    
+
+            # Normalize the raw reward so large numbers don't cause massive weight oscillations
+            reward = reward / 100.0
+
             agent.update(current_state, action, next_state, reward)
             prev_action = action
 
@@ -65,6 +75,8 @@ def train_agent(episodes: int) -> ApproximateQAgent:
             current_win_rate = (batch_wins / 50.0) * 100
             print(f"Episode {episode}/{episodes} | Win Rate (of current batch): {current_win_rate:.1f}% | Epsilon: {agent.epsilon:.3f}")
             batch_wins = 0
+
+        # Decay epsilon slowly to transition the agent from exploration to pure exploitation
         agent.epsilon = max(0.01, agent.epsilon * 0.995)
             
     return agent
@@ -72,6 +84,8 @@ def train_agent(episodes: int) -> ApproximateQAgent:
 
 def test_agent(agent: ApproximateQAgent, episodes: int):
     game = PacmanGame(display=False)
+
+    # Force pure exploitation (no random moves) for accurate performance evaluation
     agent.epsilon = 0.0
         
     total_test_score = 0
