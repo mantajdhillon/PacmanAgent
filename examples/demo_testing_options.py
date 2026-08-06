@@ -1,9 +1,9 @@
 """Quick demo showing all testing options without running interactive games."""
 
 import sys
-from game_engine import PacmanGame
-from feature_extractor import FeatureExtractor
-from config import UP, DOWN, LEFT, RIGHT
+from src.core.game_engine import PacmanGame
+from src.core.feature_extractor import FeatureExtractor
+from src.core.config import UP, DOWN, LEFT, RIGHT
 import random
 
 

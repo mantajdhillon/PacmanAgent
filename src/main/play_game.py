@@ -1,13 +1,13 @@
 """Interactive Pac-Man game with Pygame UI for manual testing."""
 
 import pygame
-from astar_agent import AStarPacmanAgent
-from minimax_agent import MinimaxPacmanAgent
-from minimax_ghost import MinimaxGhostAgent
-from minimax_attack_agent import MinimaxScaredGhostAttackAgent
-from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
-from game_engine import PacmanGame
-from config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
+from src.agents.astar_agent import AStarPacmanAgent
+from src.agents.minimax_agent import MinimaxPacmanAgent
+from src.agents.minimax_ghost import MinimaxGhostAgent
+from src.agents.minimax_attack_agent import MinimaxScaredGhostAttackAgent
+from src.agents.minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
+from src.core.game_engine import PacmanGame
+from src.core.config import UP, DOWN, LEFT, RIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
 import sys
 
 
@@ -85,12 +85,34 @@ class GamePlayer:
                     threat_nearby = self.minimax_agent.is_threat_nearby(
                         game_state
                     )
+                    remaining_food = len(game_state.board.pellets) + len(game_state.board.power_pellets)
+                    prioritize_food = remaining_food <= 3 or (
+                        remaining_food <= 8
+                        and self.astar_agent.maze_distance(
+                            game_state,
+                            game_state.pacman.position.to_tuple(),
+                            min(
+                                list(game_state.board.get_pellets()) + list(game_state.board.get_power_pellets()),
+                                key=lambda target: self.astar_agent.maze_distance(game_state, game_state.pacman.position.to_tuple(), target) or float("inf"),
+                            ),
+                        )
+                        is not None
+                        and self.astar_agent.maze_distance(
+                            game_state,
+                            game_state.pacman.position.to_tuple(),
+                            min(
+                                list(game_state.board.get_pellets()) + list(game_state.board.get_power_pellets()),
+                                key=lambda target: self.astar_agent.maze_distance(game_state, game_state.pacman.position.to_tuple(), target) or float("inf"),
+                            ),
+                        )
+                        <= 4
+                    )
                     if (
-                        not threat_nearby
+                        (not threat_nearby or prioritize_food)
                         and self.minimax_agent.is_action_safe(
                             game_state,
                             point_action,
-                            minimum_distance=2,
+                            minimum_distance=0 if prioritize_food else 2,
                         )
                     ):
                         self.current_ai_mode = "A*"

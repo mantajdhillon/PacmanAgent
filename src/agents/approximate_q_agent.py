@@ -1,6 +1,6 @@
 import random
 import numpy as np
-from feature_extractor import FeatureExtractor
+from src.core.feature_extractor import FeatureExtractor
 
 class ApproximateQAgent:
     def __init__(self, learning_rate: float = 0.01, discount_factor: float = 0.9, epsilon: float = 0.1):

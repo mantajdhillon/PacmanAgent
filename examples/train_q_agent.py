@@ -1,8 +1,8 @@
 import pygame
 import random
-from game_engine import PacmanGame
-from approximate_q_agent import ApproximateQAgent
-from config import UP, DOWN, LEFT, RIGHT
+from src.core.game_engine import PacmanGame
+from src.agents.approximate_q_agent import ApproximateQAgent
+from src.core.config import UP, DOWN, LEFT, RIGHT
 
 def move_ghosts_randomly(game: PacmanGame):
     directions = [UP, DOWN, LEFT, RIGHT]

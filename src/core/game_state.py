@@ -3,7 +3,7 @@
 import numpy as np
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
-from config import WALL, EMPTY, PELLET, POWER_PELLET
+from .config import WALL, EMPTY, PELLET, POWER_PELLET
 
 
 @dataclass

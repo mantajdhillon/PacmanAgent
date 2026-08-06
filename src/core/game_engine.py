@@ -3,14 +3,14 @@
 import pygame
 import numpy as np
 from typing import Tuple, List, Optional
-from config import (
+from .config import (
     BOARD_WIDTH, BOARD_HEIGHT, CELL_SIZE, WINDOW_WIDTH, WINDOW_HEIGHT, FPS,
     UP, DOWN, LEFT, RIGHT, DIRECTIONS,
     WALL, EMPTY, PELLET, POWER_PELLET,
     BLACK, WHITE, YELLOW, RED, PINK, CYAN, ORANGE, BLUE
 )
-from game_state import GameState, GameBoard, PacmanState, GhostState, Position
-from feature_extractor import FeatureExtractor
+from .game_state import GameState, GameBoard, PacmanState, GhostState, Position
+from .feature_extractor import FeatureExtractor
 
 
 class PacmanGame:

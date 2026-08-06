@@ -2,11 +2,11 @@
 
 import sys
 import numpy as np
-from astar_agent import AStarPacmanAgent
-from game_engine import PacmanGame
-from feature_extractor import FeatureExtractor
-from approximate_q_agent import ApproximateQAgent
-from config import UP, DOWN, LEFT, RIGHT
+from src.agents.astar_agent import AStarPacmanAgent
+from src.core.game_engine import PacmanGame
+from src.core.feature_extractor import FeatureExtractor
+from src.agents.approximate_q_agent import ApproximateQAgent
+from src.core.config import UP, DOWN, LEFT, RIGHT
 
 
 def test_game_initialization():
@@ -205,9 +205,9 @@ def test_astar_pathfinding():
 def test_minimax_defense():
     """Test Normal Pac-Man defensive Minimax."""
     print("\nTesting Minimax defense...")
-    from game_engine import PacmanGame
-    from minimax_agent import MinimaxPacmanAgent
-    from game_state import (
+    from src.core.game_engine import PacmanGame
+    from src.agents.minimax_agent import MinimaxPacmanAgent
+    from src.core.game_state import (
         GameBoard,
         GameState,
         GhostState,
@@ -448,15 +448,15 @@ def test_terminal_state_value():
 def test_minimax_ghost_attack():
     """Test Requirement 2: normal ghosts use team Minimax attack."""
     print("\nTesting normal ghost Minimax attack...")
-    from game_state import (
+    from src.core.game_state import (
         GameBoard,
         GameState,
         GhostState,
         PacmanState,
         Position,
     )
-    from minimax_ghost import MinimaxGhostAgent
-    from minimax_agent import MinimaxPacmanAgent
+    from src.agents.minimax_ghost import MinimaxGhostAgent
+    from src.agents.minimax_agent import MinimaxPacmanAgent
 
     def bordered_board(width=9, height=7):
         board = GameBoard(width, height)
@@ -594,14 +594,14 @@ def test_minimax_ghost_attack():
 def test_minimax_scared_ghost_attack():
     """Test Requirement 3: Pac-Man safely attacks viable scared ghosts."""
     print("\nTesting Pac-Man scared-ghost Minimax attack...")
-    from game_state import (
+    from src.core.game_state import (
         GameBoard,
         GameState,
         GhostState,
         PacmanState,
         Position,
     )
-    from minimax_attack_agent import MinimaxScaredGhostAttackAgent
+    from src.agents.minimax_attack_agent import MinimaxScaredGhostAttackAgent
 
     def bordered_board(width=13, height=7):
         board = GameBoard(width, height)
@@ -749,14 +749,14 @@ def test_minimax_scared_ghost_attack():
 def test_minimax_scared_ghost_defense():
     """Test Requirement 4: scared ghosts defend until their timer expires."""
     print("\nTesting scared-ghost Minimax defense...")
-    from game_state import (
+    from src.core.game_state import (
         GameBoard,
         GameState,
         GhostState,
         PacmanState,
         Position,
     )
-    from minimax_defense_ghost import (
+    from src.agents.minimax_defense_ghost import (
         MinimaxScaredGhostDefenseAgent,
     )
 
@@ -900,11 +900,11 @@ def test_minimax_scared_ghost_defense():
 def test_ghost_lifecycle_regressions():
     """Regression tests for initialization, capture, respawn, and long runs."""
     print("\nTesting stable four-ghost lifecycle...")
-    from minimax_agent import MinimaxPacmanAgent
-    from minimax_ghost import MinimaxGhostAgent
-    from minimax_attack_agent import MinimaxScaredGhostAttackAgent
-    from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
-    from game_state import Position
+    from src.agents.minimax_agent import MinimaxPacmanAgent
+    from src.agents.minimax_ghost import MinimaxGhostAgent
+    from src.agents.minimax_attack_agent import MinimaxScaredGhostAttackAgent
+    from src.agents.minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
+    from src.core.game_state import Position
 
     expected_names = {"Blinky", "Pinky", "Inky", "Clyde"}
     game = PacmanGame(display=False)

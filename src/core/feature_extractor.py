@@ -2,9 +2,9 @@
 
 import numpy as np
 from typing import List, Tuple, Dict, Optional
-from game_state import GameState, Position
+from .game_state import GameState, Position
 from collections import deque
-from config import BOARD_WIDTH, BOARD_HEIGHT
+from .config import BOARD_WIDTH, BOARD_HEIGHT
 
 MAX_GHOSTS = 4
 class FeatureExtractor:

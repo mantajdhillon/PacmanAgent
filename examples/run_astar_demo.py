@@ -1,14 +1,14 @@
 """Headless demo for Epic 2 A* pellet collection."""
 
-from astar_agent import AStarPacmanAgent
-from game_engine import PacmanGame
+from src.agents.astar_agent import AStarPacmanAgent
+from src.core.game_engine import PacmanGame
 
 
 def run_demo(max_steps: int = 2000):
     """Run Pac-Man with A* only and print a short performance summary."""
     game = PacmanGame(display=False)
     game.reset()
-    game.game_state.ghosts.clear()
+    # Note: We don't clear ghosts to maintain the game's invariant of 4 ghost identities
     agent = AStarPacmanAgent()
 
     initial_pellets = len(game.board.pellets) + len(game.board.power_pellets)
@@ -25,7 +25,7 @@ def run_demo(max_steps: int = 2000):
 
         game.check_collisions()
         game.update_scared_timers()
-        game.update_respawn_timers()
+        # Skip ghost movement and respawn updates for this demo
         game.check_win_condition()
         steps += 1
 

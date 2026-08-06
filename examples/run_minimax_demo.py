@@ -1,13 +1,13 @@
 """Headless demo for Pac-Man defense and normal-ghost Minimax attack."""
 
 import time
-from astar_agent import AStarPacmanAgent
-from minimax_agent import MinimaxPacmanAgent
-from minimax_ghost import MinimaxGhostAgent
-from minimax_attack_agent import MinimaxScaredGhostAttackAgent
-from minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
-from game_engine import PacmanGame
-from config import UP, DOWN, LEFT, RIGHT
+from src.agents.astar_agent import AStarPacmanAgent
+from src.agents.minimax_agent import MinimaxPacmanAgent
+from src.agents.minimax_ghost import MinimaxGhostAgent
+from src.agents.minimax_attack_agent import MinimaxScaredGhostAttackAgent
+from src.agents.minimax_defense_ghost import MinimaxScaredGhostDefenseAgent
+from src.core.game_engine import PacmanGame
+from src.core.config import UP, DOWN, LEFT, RIGHT
 
 def run_demo(max_steps: int = 200):
     """

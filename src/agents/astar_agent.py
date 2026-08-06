@@ -8,8 +8,8 @@ import heapq
 from collections import deque
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from config import DIRECTIONS
-from game_state import GameState
+from src.core.config import DIRECTIONS
+from src.core.game_state import GameState
 
 
 Position = Tuple[int, int]

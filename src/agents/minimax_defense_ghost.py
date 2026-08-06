@@ -1,6 +1,6 @@
 import math
 from collections import deque
-from config import BoundedCache
+from src.core.config import BoundedCache
 
 
 class MinimaxScaredGhostDefenseAgent:

@@ -1,7 +1,7 @@
 """Example usage of the Pac-Man game infrastructure and feature extraction."""
 
-from game_engine import PacmanGame
-from config import UP, DOWN, LEFT, RIGHT
+from src.core.game_engine import PacmanGame
+from src.core.config import UP, DOWN, LEFT, RIGHT
 import random
 
 
