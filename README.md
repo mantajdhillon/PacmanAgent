@@ -198,6 +198,26 @@ python examples/example_usage.py
   7. Game state components
   8. Game simulation
 
+### Run Ablation Study
+```bash
+python examples/ablation_study.py
+```
+- Evaluates each AI component (A*, Minimax, Q-Learning) by testing them individually and in combination. (needs revisions)
+- Compares 6 agent configurations and generates performance visualizations.
+
+### Run Feature Importance Analysis
+```bash
+python examples/feature_importance_analysis.py
+```
+- Analyzes which features the Q-Learning agent learns to value most during training.
+
+### Run Hyperparameter Tuning
+```bash
+python examples/hyperparameter_tuning.py
+```
+- Searches for optimal hyperparameters (learning rate, discount factor, epsilon) for the Q-Learning agent.
+- Tests 36 combinations and finds the best configuration.
+
 ---
 
 ## Using the Library in Your Code
